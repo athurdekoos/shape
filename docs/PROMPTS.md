@@ -4,6 +4,10 @@ These are prompts to paste into a coding assistant. The first one adds your prog
 `shape`. The second one builds a viewer of your own from nothing, which is how `shape` began.
 The third one checks that the result is real.
 
+You do not need these exact words. An assistant that can read your code fills in the detail,
+so say what you want in your own words. These are starting points. The first one is the
+request that was tried on the program in [walkthrough/](walkthrough/README.md).
+
 Change the words in capitals before you paste.
 
 ## 1. Show my program in shape

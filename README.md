@@ -96,17 +96,20 @@ To type `shape` from any folder, run `scripts/install.sh` once. It puts one link
 
 ## Ask an AI to do it
 
-Nobody has to write a table or any JSON by hand. Give a coding assistant this prompt, and it
-does the work. This is the short form:
+Nobody has to write a table or any JSON by hand, and you do not need a special prompt. Tell a
+coding assistant what you want in your own words. These are the four things to ask for, one
+part of your program at a time.
 
-> Read docs/PLUG-IN.md and docs/FORMAT.md in the shape repository. Find the part of my
-> program that moves through steps. Show me its states, its events and its conditions, and
-> wait for my yes. Then keep those moves in one table that the program runs through, add a
-> `--shape` flag that prints the table as JSON, list the program in `shape.json`, and run
-> `shape --check` until it reports no problems.
+1. **A state machine.** Ask it to rewrite one part so that its steps are one table, and the
+   program runs through that table.
+2. **The JSON.** Ask it to make the program print that table as JSON, in the format that
+   [docs/FORMAT.md](docs/FORMAT.md) describes.
+3. **A way to see it.** Ask it to list the program in `shape.json` and to run `shape --check`
+   until nothing is wrong. Or ask it to build a viewer of your own.
+4. **Proof.** Ask it to show, with a test, that the program takes every move from the table.
 
-[docs/PROMPTS.md](docs/PROMPTS.md) has the full prompt, a prompt for building a viewer of
-your own from nothing, and a prompt for checking that the outline is real.
+[docs/PROMPTS.md](docs/PROMPTS.md) has these requests written out in full, if you want a
+starting point. [docs/walkthrough/](docs/walkthrough/README.md) shows the result on one small program.
 
 ## How a program is shown
 
