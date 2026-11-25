@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""shape: see the shape of a program.
+
+usage: shape              open the screen: the programs, Enter opens one, q closes
+       shape NAME         open it on one program (part of a name is enough)
+       shape [NAME] --plain   print the same text and exit (also what a pipe gets)
+
+This file may be linked from anywhere on the PATH; it finds its own folder from where
+the real file is. Standard library only.
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+ROOT = os.path.dirname(HERE)
+sys.path.insert(0, os.path.join(ROOT, "lib"))
+import shapeview  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(shapeview.main(root=ROOT))
