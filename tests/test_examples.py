@@ -56,17 +56,24 @@ def test_the_python_example_takes_only_moves_that_are_in_its_table():
     assert {t[2] for t in taken} & ends >= {"shipped", "declined", "refunded"}
 
 
+def stored(tree, name):
+    """Every place the code stores a value in `name`: an assignment, a for loop, a with, a :=."""
+    import ast
+    return [n for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id == name and isinstance(n.ctx, ast.Store)]
+
+
 def test_the_python_example_has_no_second_copy_of_its_moves():
     """The state in orders.py is only ever set from the table: to MACHINE.initial at the start, and
-    after that to the target of the move that MACHINE.step gave."""
+    after that to the target of the move that MACHINE.step gave. Each name is stored nowhere else."""
     import ast
     tree = ast.parse((EX / "orders" / "orders.py").read_text())
-    set_to = [ast.unparse(n.value) for n in ast.walk(tree)
-              if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "state"]
-    assert sorted(set_to) == ["MACHINE.initial", "move.target"]
-    moves = [ast.unparse(n.value) for n in ast.walk(tree)
-             if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "move"]
-    assert moves == ["MACHINE.step(state, event, order)"]
+
+    def simple(name):
+        return [ast.unparse(n.value) for n in ast.walk(tree) if isinstance(n, ast.Assign) and len(n.targets) == 1
+                and isinstance(n.targets[0], ast.Name) and n.targets[0].id == name]
+
+    assert sorted(simple("state")) == ["MACHINE.initial", "move.target"] and len(stored(tree, "state")) == 2
+    assert simple("move") == ["MACHINE.step(state, event, order)"] and len(stored(tree, "move")) == 1
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
