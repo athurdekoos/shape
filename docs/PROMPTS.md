@@ -10,7 +10,8 @@ Change the words in capitals before you paste.
 
 > I want to see my program in shape, the outline viewer at https://github.com/athurdekoos/shape.
 > Clone it beside this project. Read its docs/PLUG-IN.md and docs/FORMAT.md before you
-> change anything.
+> change anything. Run shape as bin/shape in the clone, or run the clone's scripts/install.sh
+> once so that `shape` works from any folder.
 >
 > 1. Find the part of this project that moves through steps: THE SYNC JOB. List its states,
 >    the events that can happen in each state, and the conditions that choose between two
@@ -30,6 +31,9 @@ Change the words in capitals before you paste.
 > When you are done, show me the output of `shape NAME --plain` and tell me which parts of
 > the program are not in the table.
 
+On 25 November 2026 an AI that had only this prompt and this repository added a backup script
+to `shape` in about five minutes, with a clean `shape --check`.
+
 For a first look that changes no code, ask for less:
 
 > Read docs/FORMAT.md in the shape repository. Read THE SYNC JOB in this project and write
@@ -40,7 +44,8 @@ For a first look that changes no code, ask for less:
 ## 2. Build a viewer of your own from nothing
 
 The first version of `shape` came from three short requests in one evening, on top of
-tables that the programs already had. With nothing in place, ask for three things in this order.
+tables that the programs already had. With no table and no viewer in place, ask for three
+things in this order.
 
 **The table.**
 
@@ -51,8 +56,9 @@ tables that the programs already had. With nothing in place, ask for three thing
 
 **The JSON.**
 
-> Add a function that prints the table as JSON: the states, the events each state takes, and
-> for each event its branches in order, each with its target and the name of its condition.
+> Add a function that prints the table as JSON: the states, the events that can happen in each
+> state, and for each event its branches in order. Give each branch its target and the name of
+> its condition.
 > Add a flag that prints it and exits. Nobody should ever type this JSON by hand.
 
 **The viewer.**
@@ -79,7 +85,7 @@ An outline is only worth reading when the program follows it. Ask for evidence.
 >    that both the outline and the program's behaviour change.
 > 3. Run the program on real input, record the moves it takes, and show that every one is in
 >    the table.
-> 4. Break the viewer on purpose in five ways, one at a time, and tell me which of its tests
->    fail for each. Say plainly which breakages no test caught.
+> 4. Break the viewer's code on purpose in five ways, one at a time, and tell me which of its
+>    tests fail for each. Say plainly which breakages no test caught.
 >
 > Report what failed as well as what passed.
