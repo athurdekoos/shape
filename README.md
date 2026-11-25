@@ -94,7 +94,21 @@ keys and press Enter to open one. Esc goes back, `?` explains how to read the ou
 To type `shape` from any folder, run `scripts/install.sh` once. It puts one link in
 `~/.local/bin` and copies nothing. To remove it, delete that link with `rm ~/.local/bin/shape`.
 
-## Show your own program
+## Ask an AI to do it
+
+Nobody has to write a table or any JSON by hand. Give a coding assistant this prompt, and it
+does the work. This is the short form:
+
+> Read docs/PLUG-IN.md and docs/FORMAT.md in the shape repository. Find the part of my
+> program that moves through steps. Show me its states, its events and its conditions, and
+> wait for my yes. Then keep those moves in one table that the program runs through, add a
+> `--shape` flag that prints the table as JSON, list the program in `shape.json`, and run
+> `shape --check` until it reports no problems.
+
+[docs/PROMPTS.md](docs/PROMPTS.md) has the full prompt, a prompt for building a viewer of
+your own from nothing, and a prompt for checking that the outline is real.
+
+## How a program is shown
 
 `shape` reads JSON. A move is one line of a table: in this state, on this event, go to that
 state. Your program keeps its moves in one table and prints that table as JSON. There are
@@ -102,7 +116,7 @@ three ways to get there, and each one is a step up from the one before.
 
 | Way | What you do | What you can trust |
 |---|---|---|
-| 1. A file you write | Write the states and events in a JSON file by hand. | A first look. The file can drift from the code. |
+| 1. A JSON file | Write the states and events in a JSON file, or have an AI write it from the code. | A first look. The file can drift from the code. |
 | 2. A command that prints it | Keep the table in the program and add a flag that prints it as JSON. Any language works. | The outline is as fresh as the code, because it is made again each time. |
 | 3. The table is the program | The program takes every move by looking it up in the table. | The outline is what the program does, because there is no second copy. |
 
@@ -133,19 +147,6 @@ its project.
   a Python program and a JavaScript program.
 - [python/shapetable.py](python/shapetable.py) is one file a Python program can copy. It
   holds the table, runs the program through it and prints the JSON.
-
-## Ask an AI to do it
-
-If an AI writes your code, ask it to do the work. This is the short form of the prompt:
-
-> Read docs/PLUG-IN.md and docs/FORMAT.md in the shape repository. Find the part of my
-> program that moves through steps. Show me its states, its events and its conditions, and
-> wait for my yes. Then keep those moves in one table that the program runs through, add a
-> `--shape` flag that prints the table as JSON, list the program in `shape.json`, and run
-> `shape --check` until it reports no problems.
-
-[docs/PROMPTS.md](docs/PROMPTS.md) has the full prompt, a prompt for building a viewer of
-your own from nothing, and a prompt for checking that the outline is real.
 
 ## Use it
 
