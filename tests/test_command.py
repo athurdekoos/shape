@@ -221,6 +221,12 @@ def test_version():
     assert r.returncode == 0 and r.stdout.startswith("shape ")
 
 
+def test_the_help_says_where_counting_stops():
+    r = run("--help")
+    assert r.returncode == 0 and "every route that was found" in r.stdout and "2,000" in r.stdout
+    assert "however many" not in r.stdout
+
+
 # ---- when something is wrong ----
 
 def test_one_source_that_fails_does_not_hide_the_others(home):

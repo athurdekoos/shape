@@ -138,7 +138,7 @@ def build(doc: dict, root: str = "") -> dict:
     outgoing = {}             # state -> [(event, branch), ...] in declared order
     by_event = {}             # state -> {event: [branch, ...]} in declared order
 
-    conditions = {}
+    conditions = {}       # (name, where) -> the sentences the JSON gives it, in order
 
     def condition(guard):
         if not guard:
@@ -146,9 +146,9 @@ def build(doc: dict, root: str = "") -> dict:
         name, where = guard["name"], guard["source"]
         if name == "<lambda>":
             name = "an unnamed condition"
-        if (name, where) not in conditions:      # the sentence in the JSON wins over the one in the file
-            conditions[(name, where)] = {"name": name, "where": where,
-                                         "says": guard["says"] or describe(root, where)}
+        said = conditions.setdefault((name, where), [])
+        if guard["says"] and guard["says"] not in said:
+            said.append(guard["says"])
         return name
 
     for name, body in states_doc.items():
@@ -166,10 +166,19 @@ def build(doc: dict, root: str = "") -> dict:
         for _event, branch in moves:
             names[branch["target"]] = True
     names = list(names)
+    for events in by_event.values():
+        for branches in events.values():
+            decided = False
+            for b in branches:
+                b["never"] = decided          # an earlier branch with no condition always wins
+                decided = decided or b["guard"] is None
+    # The moves the program can take: a branch that is never tried leads nowhere, so it is
+    # left out of the order, the routes, the ways it goes wrong and the moves that go back.
+    live = {name: [(e, b) for e, b in moves if not b["never"]] for name, moves in outgoing.items()}
 
     order, seen = [initial], {initial}    # the order the program reaches them, nearest first
     for state in order:
-        for _event, branch in outgoing.get(state, []):
+        for _event, branch in live.get(state, []):
             if branch["target"] not in seen:
                 seen.add(branch["target"])
                 order.append(branch["target"])
@@ -189,21 +198,18 @@ def build(doc: dict, root: str = "") -> dict:
     for name in shown:
         events = []
         for event, branches in by_event.get(name, {}).items():
-            decided = False
-            for b in branches:
-                b["never"] = decided          # an earlier branch with no condition always wins
-                decided = decided or b["guard"] is None
-            events.append({"event": event, "branches": branches, "open": not decided})
+            events.append({"event": event, "branches": branches,
+                           "open": all(b["guard"] is not None for b in branches)})
         states.append({"name": name, "start": name == initial, "end": name not in outgoing,
                        "goal": name == goal, "attention": name in attention,
                        "reachable": name in seen, "events": events})
 
     # A move goes back when it stays in its state, or when it leads to an earlier state from
     # which this one can be reached again: the two are then in one strongly connected component.
-    component = _components(names, {n: [b["target"] for _e, b in moves] for n, moves in outgoing.items()})
+    component = _components(names, {n: [b["target"] for _e, b in moves] for n, moves in live.items()})
     wrong, loops = [], []
     for name in shown:
-        for event, b in outgoing.get(name, []):
+        for event, b in live.get(name, []):
             row = {"source": name, "event": event, "guard": b["guard"], "target": b["target"], "id": b["id"]}
             if b["attention"] and b["target"] != name:
                 wrong.append(row)
@@ -212,29 +218,32 @@ def build(doc: dict, root: str = "") -> dict:
                 loops.append(row)
 
     found = {}            # the states of a route -> how many ways lead along it
-    count = {"ways": 0, "steps": 0, "capped": False}
+    count = {"steps": 0, "cap": None}   # cap: "routes" or "steps" when counting stopped early
 
     def arrive(trail):
         """Count one step onto the last state of `trail`; True when the walk goes on from there."""
         count["steps"] += 1
         if count["steps"] > STEP_LIMIT:
-            count["capped"] = True
+            count["cap"] = "steps"
             return False
-        if outgoing.get(trail[-1]):
+        if live.get(trail[-1]):
             return True
-        found[tuple(trail)] = found.get(tuple(trail), 0) + 1
-        count["ways"] += 1
-        if count["ways"] > PATH_LIMIT:
-            count["capped"] = True
+        route = tuple(trail)
+        if route in found:
+            found[route] += 1
+        elif len(found) == PATH_LIMIT:
+            count["cap"] = "routes"     # one route more than the limit: there are more than PATH_LIMIT
+        else:
+            found[route] = 1
         return False
 
     # Every route from the start that visits no state twice, walked with a list instead of
     # recursion so that a long chain of states cannot exhaust Python's stack.
     trail, on_trail = [initial], {initial}
     stack = [[initial, 0]] if arrive(trail) else []
-    while stack and not count["capped"]:
+    while stack and not count["cap"]:
         top = stack[-1]
-        moves = outgoing[top[0]]
+        moves = live[top[0]]
         if top[1] == len(moves):
             stack.pop()
             on_trail.discard(trail.pop())
@@ -258,9 +267,12 @@ def build(doc: dict, root: str = "") -> dict:
         "id": doc["id"], "defined_in": doc.get("defined_in") or "", "about": doc.get("about") or "",
         "initial": initial, "goal": goal,
         "states": states, "wrong": wrong, "loops": loops, "paths": paths,
-        "path_total": len(paths), "paths_capped": count["capped"],
+        "path_total": len(paths), "paths_capped": count["cap"] is not None, "cap": count["cap"],
         "endless": not any(s["end"] and s["reachable"] for s in states),
-        "conditions": list(conditions.values()), "unreachable": unreachable,
+        "conditions": [{"name": name, "where": where, "says": says}
+                       for (name, where), said in conditions.items()
+                       for says in (said or [describe(root, where)])],
+        "unreachable": unreachable,
         "transitions": sum(len(v) for v in outgoing.values()),
         # what notes() needs: what the description itself listed
         "declared": list(states_doc), "extra": doc["extra"], "attention_named": attention,
@@ -313,9 +325,23 @@ def notes(model: dict) -> list:
 # ---- the text ----
 
 def _routes_label(model: dict) -> str:
-    if model["paths_capped"]:
+    """How many routes were counted, for the list's column and the title of the routes."""
+    if model["cap"] == "routes":
         return "more than %d" % PATH_LIMIT
+    if model["cap"] == "steps":
+        return "%d or more" % model["path_total"] if model["path_total"] else "too many to count"
     return str(model["path_total"])
+
+
+def _routes_phrase(model: dict) -> str:
+    """The routes for the summary line, such as "2 routes to an end"."""
+    if model["endless"]:
+        return "no end state" if not any(s["end"] for s in model["states"]) else "no end state reached"
+    if model["cap"] == "steps" and not model["path_total"]:
+        return "too many routes to an end to count"
+    if not model["cap"] and model["path_total"] == 1:
+        return "1 route to an end"
+    return "%s routes to an end" % _routes_label(model)
 
 
 def _target(branch: dict) -> list:
@@ -339,10 +365,7 @@ def render(model: dict, all_paths: bool = False) -> list:
         add([(model["about"], None)])
     summary = [plural(len(model["states"]), "state", "states"),
                plural(model["transitions"], "transition", "transitions")]
-    if model["endless"]:
-        summary.append("no end state")
-    else:
-        summary.append("%s %s to an end" % (_routes_label(model), "route" if model["path_total"] == 1 else "routes"))
+    summary.append(_routes_phrase(model))
     summary.append(plural(len(model["wrong"]), "way it goes wrong", "ways it goes wrong"))
     add([(", ".join(summary), "dim")])
     if any(s["attention"] for s in model["states"]):
@@ -402,12 +425,19 @@ def render(model: dict, all_paths: bool = False) -> list:
 
     if model["endless"]:
         section("Routes")
-        add([("    This program has no end state: it keeps moving between its states.", None)])
+        verb = "has" if not any(s["end"] for s in model["states"]) else "reaches"
+        add([("    This program %s no end state: it keeps moving between its states." % verb, None)])
         add([])
     else:
         section("Routes from start to an end (%s)" % _routes_label(model))
-        if model["paths_capped"]:
-            add([("    Counting stopped there; the routes below are the ones found first.", "dim")])
+        if model["cap"] == "routes":
+            add([("    Counting stopped at %d; the routes below are the ones found first." % PATH_LIMIT, "dim")])
+        elif model["cap"] == "steps" and model["path_total"]:
+            add([("    Counting stopped after %d steps; the routes below are the ones found first." % STEP_LIMIT,
+                  "dim")])
+        elif model["cap"] == "steps":
+            add([("    The routes were too many to count: shape stopped after %d steps, before it reached an end."
+                  % STEP_LIMIT, "dim")])
         ends = []
         for p in model["paths"]:
             if p["end"] not in ends:
@@ -423,7 +453,7 @@ def render(model: dict, all_paths: bool = False) -> list:
                     line.append(("   (%d ways)" % p["ways"], "dim"))
                 add(line)
             if len(group) > len(shown):
-                add([("    and %d more; shape %s --all prints them" % (len(group) - len(shown), model["id"]), "dim")])
+                add([("    and %d more; add --all to print them" % (len(group) - len(shown)), "dim")])
         add([])
 
     if model["loops"]:
@@ -455,7 +485,8 @@ def render(model: dict, all_paths: bool = False) -> list:
 # ---- the list ----
 
 def _row(m: dict) -> tuple:
-    return (m["id"], str(len(m["states"])), "none" if m["endless"] else _routes_label(m), str(len(m["wrong"])))
+    routes = "none" if m["endless"] else _routes_label(m)
+    return (m["id"], str(len(m["states"])), "too many" if routes == "too many to count" else routes, str(len(m["wrong"])))
 
 
 def _unread(failures: list) -> list:
@@ -757,10 +788,13 @@ def _command(argv, home: str, cwd, environ) -> int:
     ap = argparse.ArgumentParser(
         prog="shape",
         description="See the shape of a program: its states, every route through it and every way it goes wrong.",
-        epilog="The programs are the ones listed in the shape.json of this folder or a folder above it. "
+        epilog="The programs are the ones listed in the shape.json of this folder or a folder above it, and shape "
+               "runs the commands listed there on every run, --check included. "
                "docs/PLUG-IN.md in shape's folder says how to add one.")
     ap.add_argument("name", nargs="?", help="a program, or part of its name (default: list them all)")
-    ap.add_argument("--all", action="store_true", help="print every route, however many there are")
+    ap.add_argument("--all", action="store_true",
+                    help="print every route that was found, instead of the first %d for each end; counting stops "
+                         "at {:,}".format(PATH_LIMIT) % PATHS_SHOWN)
     ap.add_argument("--plain", action="store_true", help="print the text and exit, instead of opening the screen")
     ap.add_argument("--check", action="store_true",
                     help="check the JSON of every program, or of the named one, and say what is wrong")

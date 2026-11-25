@@ -160,6 +160,85 @@ def test_the_largest_description_allowed_is_shown_in_reasonable_time():
     assert built["transitions"] == sv.shapeformat.BRANCH_LIMIT
 
 
+def k10(first_move_to_the_end):
+    """Ten states that all lead to each other, and from the start one move to an end, given first or last."""
+    ts = [("k%d%d" % (i, j), "k%d" % i, "to%d" % j, "k%d" % j) for i in range(10) for j in range(10) if i != j]
+    into = [("in", "s0", "enter", "k0")]
+    out = [("finish", "s0", "finish", "done")]
+    return machine("k10", "s0", (out + into if first_move_to_the_end else into + out) + ts)
+
+
+def test_when_the_step_limit_stops_the_walk_before_any_route_the_count_says_so():
+    built = sv.build(k10(first_move_to_the_end=False))
+    assert built["paths_capped"] is True and built["path_total"] == 0
+    out = text(built)
+    assert "more than" not in out
+    assert "too many routes to an end to count" in out.splitlines()[1]
+    assert "Routes from start to an end (too many to count)" in out
+    assert "The routes were too many to count" in out
+    assert sv._row(built)[2] == "too many"
+
+
+def test_when_the_step_limit_stops_the_walk_the_count_is_what_was_found_or_more():
+    built = sv.build(k10(first_move_to_the_end=True))
+    assert built["paths_capped"] is True and built["path_total"] == 1
+    out = text(built)
+    assert "more than" not in out
+    assert "1 or more routes to an end" in out.splitlines()[1]
+    assert "Routes from start to an end (1 or more)" in out and "s0 → done" in out
+    assert sv._row(built)[2] == "1 or more"
+
+
+def test_the_route_limit_counts_routes_and_not_ways():
+    built = sv.build(machine("ways", "a", [("t%d" % i, "a", "e%d" % i, "b") for i in range(sv.PATH_LIMIT + 1)]))
+    assert built["paths_capped"] is False and built["path_total"] == 1
+    out = text(built)
+    assert "1 route to an end" in out and "(%d ways)" % (sv.PATH_LIMIT + 1) in out and "more than" not in out
+
+
+def test_all_prints_every_route_that_was_found():
+    ts = []
+    for i in range(12):  # twelve two-way forks in a row: 4096 routes
+        ts += [("u%d" % i, "s%d" % i, "up", "u%d" % i), ("d%d" % i, "s%d" % i, "down", "d%d" % i),
+               ("ju%d" % i, "u%d" % i, "join", "s%d" % (i + 1)), ("jd%d" % i, "d%d" % i, "join", "s%d" % (i + 1))]
+    built = sv.build(machine("forks", "s0", ts))
+    assert built["path_total"] == sv.PATH_LIMIT
+    assert text(built, all_paths=True).count("s0 → ") == sv.PATH_LIMIT
+    assert "more than %d routes to an end" % sv.PATH_LIMIT in text(built)
+
+
+def test_a_branch_that_is_never_tried_leads_nowhere():
+    doc = {"id": "door", "initial": "closed", "attention": ["stuck"],
+           "states": {"closed": {"on": {"push": ["open", {"target": "stuck", "guard": {"name": "is_rusty", "says": "Rusty."}}],
+                                        "kick": ["open", "closed"]}},
+                      "open": {}, "stuck": {}}}
+    built = sv.build(doc)
+    assert built["wrong"] == [] and built["loops"] == []
+    assert [p["states"] for p in built["paths"]] == [["closed", "open"]] and built["paths"][0]["ways"] == 2
+    assert built["unreachable"] == ["stuck"]
+    out = text(built)
+    assert "Ways it goes wrong" not in out and "Goes back" not in out and "never reached" in out
+
+
+def test_end_states_that_nothing_reaches_are_not_called_no_end_state():
+    built = sv.build(machine("loop", "a", [("x", "a", "go", "b"), ("y", "b", "go", "a"), ("z", "c", "go", "d")]))
+    assert built["endless"] is True
+    out = text(built)
+    assert "no end state" in out.splitlines()[1]
+    assert "reaches no end state" in out and "has no end state" not in out
+
+
+def test_two_conditions_with_one_name_and_two_sentences_are_both_listed():
+    doc = {"id": "two", "initial": "a", "attention": [], "about": "Two.",
+           "states": {"a": {"on": {"go": [{"target": "b", "guard": {"name": "g", "says": "First."}}, "c"],
+                                   "run": [{"target": "c", "guard": {"name": "g", "says": "Second."}}, "b"],
+                                   "fly": [{"target": "c", "guard": {"name": "g", "says": "First."}}, "b"]}},
+                      "b": {}, "c": {}}}
+    built = sv.build(doc)
+    assert [c["says"] for c in built["conditions"]] == ["First.", "Second."]
+    assert "Conditions (2)" in text(built)
+
+
 def test_a_condition_gets_its_words_from_the_function_it_names(tmp_path):
     (tmp_path / "conds.py").write_text(
         'def is_auth(ctx):\n'
@@ -286,7 +365,7 @@ def test_long_route_lists_are_cut_with_a_count_unless_all_is_asked():
         ts += [("o%d" % i, "hub", "e%d" % i, "m%d" % i), ("b%d" % i, "m%d" % i, "back", "end")]
     built = sv.build(machine("many", "a", ts))
     short = text(built)
-    assert "and 3 more" in short and "--all" in short
+    assert "    and 3 more; add --all to print them" in short
     assert "and 3 more" not in text(built, all_paths=True)
     assert text(built, all_paths=True).count("a → hub → m") == sv.PATHS_SHOWN + 3
 
