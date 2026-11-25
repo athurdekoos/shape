@@ -43,7 +43,7 @@ def test_every_example_is_fine_by_check():
         assert "coffee.machine" in r.stdout and "orders.fulfil" in r.stdout
         pytest.skip("node is not installed, so the JavaScript example could not be read")
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "3 programs checked" in r.stdout and "note" not in r.stdout and "problem" not in r.stdout
+    assert "3 programs checked: all are fine." in r.stdout and "note" not in r.stdout
 
 
 def test_the_python_example_takes_only_moves_that_are_in_its_table():
@@ -110,3 +110,51 @@ def test_the_schema_agrees_with_the_examples_and_with_read():
         assert list(check.iter_errors(bad)), bad
         with pytest.raises(sf.FormatError):
             sf.read(bad)
+
+
+# ---- the plug-in guide: its code runs as printed ----
+
+def blocks(page, kind):
+    text = (REPO / "docs" / page).read_text()
+    fence = "```"
+    return [part.split("\n", 1)[1] for n, part in enumerate(text.split(fence)) if n % 2 and part.startswith(kind + "\n")]
+
+
+@pytest.fixture
+def guide(tmp_path):
+    """A project folder built by following docs/PLUG-IN.md to the letter."""
+    import shutil as sh
+    json_blocks, python_blocks = blocks("PLUG-IN.md", "json"), blocks("PLUG-IN.md", "python")
+    (tmp_path / "door.json").write_text(json_blocks[0])
+    (tmp_path / "orders.py").write_text(python_blocks[0] + "\n\n" + python_blocks[1])
+    (tmp_path / "test_orders.py").write_text(python_blocks[2])
+    (tmp_path / "shape.json").write_text(json_blocks[1])
+    sh.copy(REPO / "python" / "shapetable.py", tmp_path / "shapetable.py")
+    return tmp_path
+
+
+def test_the_guides_first_file_is_fine_by_check(guide):
+    r = subprocess.run([sys.executable, str(SHAPE), "--check", "--file", "door.json"], capture_output=True, text=True, cwd=guide)
+    assert r.returncode == 0 and "it is fine" in r.stdout, r.stdout + r.stderr
+
+
+def test_the_guides_program_prints_its_table_and_runs_through_it(guide):
+    doc = json.loads(out(sys.executable, "orders.py", "--shape", cwd=guide))
+    assert doc["id"] == "orders.fulfil"
+    taken = [m.groups() for m in map(MOVE.match, out(sys.executable, "orders.py", cwd=guide).splitlines()) if m]
+    assert taken and set(taken) <= moves_in(doc)
+
+
+def test_the_guides_own_test_passes(guide):
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "test_orders.py"], capture_output=True, text=True, cwd=guide)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_the_guides_shape_json_lists_what_the_guide_built(guide):
+    r = subprocess.run([sys.executable, str(SHAPE), "--check"], capture_output=True, text=True, cwd=guide)
+    assert r.returncode == 0 and "2 programs checked: all are fine." in r.stdout, r.stdout + r.stderr
+
+
+def test_a_condition_shows_the_first_paragraph_of_its_docstring(guide):
+    text = (REPO / "docs" / "PLUG-IN.md").read_text() + (EX / "orders" / "orders.py").read_text()
+    assert "first sentence" not in text
