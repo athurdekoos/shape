@@ -214,8 +214,8 @@ conditions ends with "otherwise no transition is declared".
 It uses the Python standard library only. Run the tests with `python3 -m pytest -q`. Some
 tests need Node.js or the `jsonschema` package, and they are skipped when it is missing.
 
-The tests run on Linux, with Python 3.9 and 3.13, each time code is pushed. The same workflow
-has a macOS job. `shape` was written on Linux, and macOS should behave the same way.
+The tests run on Linux and on macOS each time code is pushed. On Linux they also run on
+Python 3.9, the oldest version `shape` supports.
 
 It has not been tried on Windows, where Python does not include the `curses` module that the
 screen uses.
