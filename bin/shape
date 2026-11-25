@@ -4,9 +4,12 @@
 usage: shape              open the screen: the programs, Enter opens one, q closes
        shape NAME         open it on one program (part of a name is enough)
        shape [NAME] --plain   print the same text and exit (also what a pipe gets)
+       shape --check      check the JSON of every program and say what is wrong
+       shape --file PATH  read one JSON file
 
 This file may be linked from anywhere on the PATH; it finds its own folder from where
-the real file is. Standard library only.
+the real file is. The programs are the ones listed in the shape.json of the folder you
+are in, or a folder above it. Standard library only.
 """
 import os
 import sys
@@ -17,4 +20,4 @@ sys.path.insert(0, os.path.join(ROOT, "lib"))
 import shapeview  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(shapeview.main(root=ROOT))
+    sys.exit(shapeview.main(home=ROOT))

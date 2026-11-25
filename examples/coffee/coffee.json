@@ -1,0 +1,39 @@
+{
+  "id": "coffee.machine",
+  "about": "Makes one cup of coffee, from the press of the button to the full cup.",
+  "initial": "idle",
+  "goal": "served",
+  "attention": ["no_water", "broken"],
+  "states": {
+    "idle": {
+      "on": {"button_pressed": "checking_water"}
+    },
+    "checking_water": {
+      "on": {
+        "water_found": "heating",
+        "tank_empty": "no_water"
+      }
+    },
+    "heating": {
+      "on": {
+        "hot": "brewing",
+        "heater_error": [
+          {
+            "target": "heating",
+            "guard": {"name": "first_failure", "says": "The heater has failed once, so it is tried one more time."},
+            "actions": "restart_heater"
+          },
+          "broken"
+        ]
+      }
+    },
+    "brewing": {
+      "on": {"cup_full": "served"}
+    },
+    "no_water": {
+      "on": {"tank_filled": "checking_water"}
+    },
+    "served": {},
+    "broken": {}
+  }
+}

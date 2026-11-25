@@ -4,19 +4,16 @@ An outline is a list of lines, and a line is a list of (text, style) pieces. The
 showing is here: to_text() for plain or
 coloured text, table() for the printed list, wrap() for a narrow window, Browser and
 browse() for the screen that stays open (a list, Enter opens one, Esc goes back),
-sources() and read_source() for the JSON that shape.json names, and
-command() for the command line itself.
+and sources() and read_source() for the JSON that shape.json names.
 
 shapeview adds what is its own in a subclass of Browser: the columns of its list,
 the outline of one thing and the help. Standard library only, Python 3.9 compatible.
 """
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import subprocess
-import sys
 
 
 class SourceError(Exception):
@@ -99,28 +96,30 @@ def wrap(line: list, width: int) -> list:
 
 # ---- where the JSON comes from ----
 
-def sources(root: str, config: str) -> list:
-    """The list of sources in `config` (a path under `root`, such as shape.json).
+def sources(config: str) -> list:
+    """The list of sources in the file `config`, such as a shape.json.
     A source is {"file": PATH} or {"command": [ARGV...]}."""
     try:
-        with open(os.path.join(root, config), encoding="utf-8") as fh:
+        with open(config, encoding="utf-8") as fh:
             found = json.load(fh)
-    except (OSError, ValueError) as exc:
-        raise SourceError("%s: %s" % (config, exc))
+    except OSError as exc:
+        raise SourceError("%s: %s" % (config, exc.strerror or exc))
+    except ValueError as exc:
+        raise SourceError("%s: not JSON (%s)" % (config, exc))
     if not isinstance(found, list):
-        raise SourceError("%s: not a list of sources" % config)
+        raise SourceError('%s: it should hold a list of sources, such as [{"file": "program.json"}]' % config)
     return found
 
 
 def read_source(root: str, src: dict):
-    if "file" in src:
+    if isinstance(src.get("file"), str):
         label = src["file"]
         try:
             with open(os.path.join(root, src["file"]), encoding="utf-8") as fh:
                 raw = fh.read()
-        except OSError as exc:
-            raise SourceError("%s: %s" % (label, exc))
-    elif "command" in src:
+        except (OSError, UnicodeDecodeError) as exc:
+            raise SourceError("%s: %s" % (label, getattr(exc, "strerror", None) or exc))
+    elif isinstance(src.get("command"), list) and src["command"] and all(isinstance(c, str) for c in src["command"]):
         command = list(src["command"])
         label = " ".join(command)
         first = os.path.join(root, command[0])
@@ -128,13 +127,16 @@ def read_source(root: str, src: dict):
             command[0] = first
         try:
             done = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=60)
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise SourceError("%s: %s" % (label, exc))
+        except subprocess.TimeoutExpired:
+            raise SourceError("%s: it did not finish in 60 seconds" % label)
+        except OSError as exc:
+            raise SourceError("%s: %s" % (label, exc.strerror or exc))
         if done.returncode != 0:
             raise SourceError("%s: exit %d: %s" % (label, done.returncode, done.stderr.strip() or "(it said nothing)"))
         raw = done.stdout
     else:
-        raise SourceError("a source needs \"file\" or \"command\": %s" % json.dumps(src))
+        raise SourceError('a source needs "file" (a path) or "command" (a list of words), and this has neither: %s'
+                          % json.dumps(src))
     try:
         return label, json.loads(raw)
     except ValueError as exc:
@@ -164,6 +166,8 @@ class Browser:
         self.scroll = 0
         self.more = more
         self.done = False
+        self.above = []     # lines shown above the list, such as where the programs came from
+        self.below = []     # lines shown under it, such as what could not be read
 
     def row(self, model: dict) -> tuple:
         """The cells of one model's row in the list, one per heading."""
@@ -214,6 +218,9 @@ class Browser:
 
     def _list(self) -> list:
         out = [[(self.name, "title"), ("   " + self.tagline, "dim")], []]
+        if self.above:
+            out.extend(self.above)
+            out.append([])
         if self.models:
             rows = [self.row(m) for m in self.models]
             widths = [max(len(r[i]) for r in [self.head] + rows) for i in range(len(self.head))]
@@ -227,6 +234,11 @@ class Browser:
                 out.append([(("> " if picked else "  ") + cells(r), "sel" if picked else None)])
             out.append([])
             out.extend(self.picked(self.models[self.cursor]))
+        else:
+            out.append([("Nothing is listed yet.", None)])
+        if self.below:
+            out.append([])
+            out.extend(self.below)
         return out
 
     def frame(self, height: int, width: int):
@@ -313,54 +325,4 @@ def browse(browser: Browser) -> int:
                 browser.key(names[code], page=max(1, height - 3))
 
     curses.wrapper(run)
-    return 0
-
-
-# ---- the command ----
-
-def command(argv, prog: str, description: str, one: str, many: str, all_help: str, elsewhere: str,
-            load, render_list, render_one, browser) -> int:
-    """The command line both commands have: no name lists everything, NAME opens one
-    (part of a name is enough), --plain prints instead of opening the screen.
-
-    `load()` gives [(id, make)] where make() builds that model; `render_list(models)`
-    and `render_one(model, more)` give lines; `browser` is the command's Browser class.
-    `one` and `many` name what the command shows ("a program", "programs"), and
-    `elsewhere` is the sentence printed when a name is not found, saying where the
-    other kind of thing is."""
-    ap = argparse.ArgumentParser(prog=prog, description=description)
-    ap.add_argument("name", nargs="?", help="%s, or part of its name (default: list them all)" % one)
-    ap.add_argument("--all", action="store_true", help=all_help)
-    ap.add_argument("--plain", action="store_true", help="print the text and exit, instead of opening the screen")
-    args = ap.parse_args(argv)
-
-    live = sys.stdout.isatty() and sys.stdin.isatty() and not args.plain
-    try:
-        makers = load()
-        ids = [i for i, _make in makers]
-        if live or args.name is None:
-            models = [make() for _i, make in makers]
-        if args.name is None:
-            if live:
-                return browse(browser(models))
-            lines = render_list(models)
-        else:
-            wanted = args.name.lower()
-            hits = [i for i in ids if i.lower() == wanted] or [i for i in ids if wanted in i.lower()]
-            if len(hits) != 1:
-                what = "nothing is called %r" % args.name if not hits else \
-                    "%r fits %d names: %s" % (args.name, len(hits), ", ".join(hits))
-                print("%s: %s" % (prog, what), file=sys.stderr)
-                if not hits:
-                    print("%s: the %s are: %s" % (prog, many, ", ".join(ids)), file=sys.stderr)
-                    if elsewhere:
-                        print("%s: %s" % (prog, elsewhere), file=sys.stderr)
-                return 2
-            if live:
-                return browse(browser(models, start=ids.index(hits[0]), more=args.all))
-            lines = render_one(makers[ids.index(hits[0])][1](), args.all)
-    except (SourceError, ValueError) as exc:
-        print("%s: %s" % (prog, exc), file=sys.stderr)
-        return 1
-    sys.stdout.write(to_text(lines, color=False))
     return 0

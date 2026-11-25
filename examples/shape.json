@@ -1,0 +1,19 @@
+[
+  {
+    "file": "coffee/coffee.json"
+  },
+  {
+    "command": [
+      "python3",
+      "orders/orders.py",
+      "--shape"
+    ]
+  },
+  {
+    "command": [
+      "node",
+      "download/download.js",
+      "--shape"
+    ]
+  }
+]

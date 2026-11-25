@@ -57,20 +57,16 @@ def test_the_python_example_takes_only_moves_that_are_in_its_table():
 
 
 def test_the_python_example_has_no_second_copy_of_its_moves():
-    """Every change of state in orders.py comes from MACHINE.step: the only place a state name is
-    written is the table."""
+    """The state in orders.py is only ever set from the table: to MACHINE.initial at the start, and
+    after that to the target of the move that MACHINE.step gave."""
     import ast
     tree = ast.parse((EX / "orders" / "orders.py").read_text())
-    doc = json.loads(out(sys.executable, "orders/orders.py", "--shape"))
-    names = set(doc["states"])
-    table = next(n for n in ast.walk(tree) if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "MACHINE")
-    inside = {id(n) for n in ast.walk(table)}
-    work = next(n for n in ast.walk(tree) if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "WORK")
-    inside |= {id(n) for n in ast.walk(work)}
-    stray = [n.value for n in ast.walk(tree)
-             if isinstance(n, ast.Constant) and n.value in names and id(n) not in inside]
-    assert stray == []
-    assert any(isinstance(n, ast.Attribute) and n.attr == "step" for n in ast.walk(tree))
+    set_to = [ast.unparse(n.value) for n in ast.walk(tree)
+              if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "state"]
+    assert sorted(set_to) == ["MACHINE.initial", "move.target"]
+    moves = [ast.unparse(n.value) for n in ast.walk(tree)
+             if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "move"]
+    assert moves == ["MACHINE.step(state, event, order)"]
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")

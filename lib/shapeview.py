@@ -8,19 +8,27 @@ from the start to an end, the transitions that go back, and the conditions.
 render() turns the model into lines of (text, style) pieces, so everything can be
 tested without a terminal.
 
-Where the JSON comes from is listed in shape.json (see load_docs). The screen that
-stays open, the printed list and the command line are in screen.py. Standard library
+shapeformat.py reads a description strictly and writes out its shorthands. Where the
+JSON comes from is a list of sources, usually the shape.json found from the folder
+the command was typed in (see find_sources and load_all). check() is what
+shape --check prints. The screen that stays open is in screen.py. Standard library
 only, Python 3.9 compatible.
 """
 from __future__ import annotations
 
+import argparse
 import ast
+import json
 import os
+import sys
 
 import screen
+import shapeformat
 from screen import SourceError, plural
+from shapeformat import FormatError
 
-SOURCES = "shape.json"
+VERSION = "0.1.0"
+CONFIG = "shape.json"  # the list of sources, looked for in the folder shape is typed in and the folders above
 
 PATH_LIMIT = 2000      # stop counting routes past this many; the outline says so
 STEP_LIMIT = 200000    # and stop walking after this many steps, whatever was found
@@ -59,13 +67,11 @@ def describe(root: str, where: str) -> str:
 # ---- the model ----
 
 def build(doc: dict, root: str = "") -> dict:
-    """The outline model of one machine description."""
-    for key in ("id", "initial", "states"):
-        if key not in doc:
-            raise ValueError("not a machine description: no %r" % key)
+    """The outline model of one machine description. Raises shapeformat.FormatError, which
+    is a ValueError, when the description is wrong."""
+    doc = shapeformat.read(doc)
     initial, states_doc = doc["initial"], doc["states"]
-    attention = list(doc.get("attention") or [])
-    goal = doc.get("goal")
+    attention, goal = doc["attention"], doc["goal"]
 
     names = []            # every state named anywhere, start first
     outgoing = {}         # state -> [(event, branch), ...] in declared order
@@ -80,22 +86,21 @@ def build(doc: dict, root: str = "") -> dict:
     def condition(guard):
         if not guard:
             return None
-        if isinstance(guard, dict):
-            name, where = guard.get("name") or "a condition", guard.get("source") or ""
-        else:
-            name, where = str(guard), ""
+        name, where = guard["name"], guard["source"]
         if name == "<lambda>":
             name = "an unnamed condition"
-        conditions.setdefault((name, where), {"name": name, "where": where, "says": describe(root, where)})
+        if (name, where) not in conditions:      # the sentence in the JSON wins over the one in the file
+            conditions[(name, where)] = {"name": name, "where": where,
+                                         "says": guard["says"] or describe(root, where)}
         return name
 
     note(initial)
     for name, body in states_doc.items():
         note(name)
-        for event, branches in ((body or {}).get("on") or {}).items():
+        for event, branches in body["on"].items():
             events_of.setdefault(name, []).append(event)
             for raw in branches:
-                actions = raw.get("actions") or []
+                actions = raw["actions"]
                 branch = {"id": raw.get("id"), "target": raw["target"], "guard": condition(raw.get("guard")),
                           "action": ", ".join(actions) if actions else None,
                           "attention": raw["target"] in attention, "never": False}
@@ -103,8 +108,6 @@ def build(doc: dict, root: str = "") -> dict:
     for moves in list(outgoing.values()):
         for _event, branch in moves:
             note(branch["target"])
-    if initial not in states_doc and initial not in outgoing:
-        raise ValueError("%s: the start state %r is not one of its states" % (doc["id"], initial))
 
     order = [initial]     # the order the program reaches them, nearest first
     for state in order:
@@ -192,7 +195,49 @@ def build(doc: dict, root: str = "") -> dict:
         "endless": not any(s["end"] and s["reachable"] for s in states),
         "conditions": list(conditions.values()), "unreachable": unreachable,
         "transitions": sum(len(v) for v in outgoing.values()),
+        # what notes() needs: what the description itself listed
+        "declared": list(states_doc), "extra": doc["extra"], "attention_named": attention,
+        "attention_listed": doc["listed_attention"],
+        "ids": [b["id"] for moves in outgoing.values() for _event, b in moves if b["id"]],
     }
+
+
+def notes(model: dict) -> list:
+    """Advice about one description that shape can still show: one sentence for each thing
+    a person probably did not mean. shape --check prints them; they refuse nothing."""
+    out = []
+    names = [s["name"] for s in model["states"]]
+    for name in names:
+        if name not in model["declared"]:
+            out.append('state "%s" is led to but has no entry under "states"; shape shows it as an end' % name)
+    for name in model["attention_named"]:
+        if name not in names:
+            out.append('"attention" names "%s", which is not a state' % name)
+    if model["goal"] and model["goal"] not in names:
+        out.append('"goal" names "%s", which is not a state' % model["goal"])
+    for name in model["unreachable"]:
+        out.append('state "%s" is never reached from the start' % name)
+    for s in model["states"]:
+        for e in s["events"]:
+            where = 'state "%s", event "%s"' % (s["name"], e["event"])
+            for b in e["branches"]:
+                if b["never"]:
+                    out.append('%s: the branch to "%s" is never tried, because an earlier branch has no condition'
+                               % (where, b["target"]))
+            if e["open"]:
+                out.append("%s: every branch has a condition, so nothing is declared for when none holds" % where)
+    for tid in sorted({i for i in model["ids"] if model["ids"].count(i) > 1}):
+        out.append('the id "%s" is given to more than one branch' % tid)
+    for c in model["conditions"]:
+        if not c["says"]:
+            out.append('the condition "%s" has no sentence beside it' % c["name"])
+    if not model["about"]:
+        out.append('it has no "about", the one sentence that says what the program is')
+    if not model["attention_listed"]:
+        out.append('it has no "attention" list, so shape cannot say which states are the ways it goes wrong')
+    for key in model["extra"]:
+        out.append('it has a key shape does not read: "%s"' % key)
+    return out
 
 
 # ---- the text ----
@@ -343,51 +388,192 @@ def _row(m: dict) -> tuple:
     return (m["id"], str(len(m["states"])), "none" if m["endless"] else _routes_label(m), str(len(m["wrong"])))
 
 
-def render_list(models: list) -> list:
+def _unread(failures: list) -> list:
+    """The lines that say which programs could not be shown."""
+    if not failures:
+        return []
+    out = [[("Could not read %s:" % plural(len(failures), "program or source", "programs or sources"), "bad")]]
+    out += [[("    " + f, None)] for f in failures]
+    return out + [[]]
+
+
+def render_list(models: list, above=(), failures=()) -> list:
     """The printed list: one row per program."""
-    out = []
+    out = [line for line in above]
+    if above:
+        out.append([])
     if models:
-        out = screen.table(("PROGRAM", "STATES", "ROUTES", "GOES WRONG", "WHAT IT IS"),
-                           [_row(m) + (m["about"] or m["defined_in"],) for m in models])
+        out += screen.table(("PROGRAM", "STATES", "ROUTES", "GOES WRONG", "WHAT IT IS"),
+                            [_row(m) + (m["about"] or m["defined_in"],) for m in models])
+    else:
+        out += [[("No program is listed yet.", None)], []]
+    out += _unread(list(failures))
     out.append([("shape NAME opens one; part of a name is enough.", "dim")])
     return out
 
 
 # ---- where the JSON comes from ----
 
-def load_docs(root: str) -> list:
-    """Every machine description named by shape.json, in order.
+def find_sources(home: str, cwd: str, file=None, config=None, environ=None):
+    """(root, sources, above): the folder that paths and commands start from, the list of
+    sources, and lines to show above the list.
 
-    A source is {"file": PATH} or {"command": [ARGV...]}; either gives one machine,
-    a list of machines or {"machines": [...]}. An optional "registry": PATH names a
-    JSON list of {id, path, attention, about}; it fills in a machine's file, the
-    states that need attention and the sentence that says what the program is, when
-    the description itself does not say."""
+    --file names one JSON file. Otherwise the list is --config, or $SHAPE_CONFIG, or the
+    shape.json in the folder shape was typed in or the nearest folder above it. When there
+    is none, the examples in shape's own folder are shown, and the lines above say so."""
+    environ = os.environ if environ is None else environ
+    if file:
+        path = os.path.abspath(os.path.join(cwd, file))
+        return os.path.dirname(path), [{"file": os.path.basename(path)}], []
+    named = config or environ.get("SHAPE_CONFIG")
+    if named:
+        path = os.path.abspath(os.path.join(cwd, named))
+        return os.path.dirname(path), screen.sources(path), []
+    folder = os.path.abspath(cwd)
+    while True:
+        path = os.path.join(folder, CONFIG)
+        if os.path.isfile(path):
+            return folder, screen.sources(path), []
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            break
+        folder = parent
+    root = os.path.join(home, "examples")
+    above = [[("These are the examples that come with shape.", None)],
+             [("No %s was found in this folder or in a folder above it. %s says how to list your own programs."
+               % (CONFIG, os.path.join(home, "docs", "PLUG-IN.md")), "dim")]]
+    return root, screen.sources(os.path.join(root, CONFIG)), above
+
+
+def _read(root: str, src) -> tuple:
+    """(label, [descriptions]) for one source. A source gives one description, a list of
+    them or {"machines": [...]}. Its optional "registry" names a JSON list of
+    {id, path, attention, about}, which fills in what a description does not say itself."""
+    if not isinstance(src, dict):
+        raise SourceError('a source is an object with "file" or "command", and this is %s' % json.dumps(src))
+    label, data = screen.read_source(root, src)
+    if isinstance(data, dict) and "machines" in data:
+        data = data["machines"]
+    found = data if isinstance(data, list) else [data]
+    extra = {}
+    if src.get("registry"):
+        _label, entries = screen.read_source(root, {"file": src["registry"]})
+        extra = {e["id"]: e for e in (entries if isinstance(entries, list) else [])
+                 if isinstance(e, dict) and isinstance(e.get("id"), str)}
+    for doc in found:
+        if not isinstance(doc, dict):
+            continue
+        entry = extra.get(doc["id"], {}) if isinstance(doc.get("id"), str) else {}
+        if "attention" not in doc and "attention" in entry:
+            doc["attention"] = entry["attention"]
+        if entry.get("path") and not doc.get("defined_in"):
+            doc["defined_in"] = entry["path"]
+        if entry.get("about") and not doc.get("about"):
+            doc["about"] = entry["about"]
+    return label, found
+
+
+def _named(doc) -> bool:
+    return isinstance(doc, dict) and isinstance(doc.get("id"), str) and bool(doc["id"])
+
+
+def load_docs(root: str, sources: list) -> list:
+    """Every description the sources give, in order. The first thing wrong raises SourceError."""
     docs, seen = [], {}
-    for src in screen.sources(root, SOURCES):
-        label, data = screen.read_source(root, src)
-        if isinstance(data, dict) and "machines" in data:
-            data = data["machines"]
-        found = data if isinstance(data, list) else [data]
-        extra = {}
-        if src.get("registry"):
-            _label, entries = screen.read_source(root, {"file": src["registry"]})
-            extra = {e["id"]: e for e in entries if isinstance(e, dict) and "id" in e}
+    for src in sources:
+        label, found = _read(root, src)
         for doc in found:
-            if not isinstance(doc, dict) or "id" not in doc:
+            if not _named(doc):
                 raise SourceError("%s: an entry is not a machine description" % label)
             if doc["id"] in seen:
                 raise SourceError("%s is described twice: by %s and by %s" % (doc["id"], seen[doc["id"]], label))
             seen[doc["id"]] = label
-            entry = extra.get(doc["id"], {})
-            if "attention" not in doc and "attention" in entry:
-                doc["attention"] = entry["attention"]
-            if not doc.get("defined_in") and entry.get("path"):
-                doc["defined_in"] = entry["path"]
-            if not doc.get("about") and entry.get("about"):
-                doc["about"] = entry["about"]
             docs.append(doc)
     return docs
+
+
+def load_all(root: str, sources: list) -> tuple:
+    """(descriptions, failures): like load_docs, but a source that cannot be read becomes a
+    sentence in failures and the rest are still read, so one broken program does not hide
+    the others."""
+    docs, failures, seen = [], [], {}
+    for src in sources:
+        try:
+            label, found = _read(root, src)
+        except SourceError as exc:
+            failures.append(str(exc))
+            continue
+        for doc in found:
+            if not _named(doc):
+                try:
+                    shapeformat.read(doc)
+                    why = "an entry is not a machine description"
+                except FormatError as exc:
+                    why = "; ".join(exc.problems)
+                failures.append("%s: %s" % (label, why))
+            elif doc["id"] in seen:
+                failures.append("%s is described twice: by %s and by %s" % (doc["id"], seen[doc["id"]], label))
+            else:
+                seen[doc["id"]] = label
+                docs.append(doc)
+    return docs, failures
+
+
+# ---- shape --check ----
+
+def check(root: str, sources: list, wanted=None) -> tuple:
+    """(lines, exit code): every program's JSON read strictly. A problem is something shape
+    cannot show, and makes the exit code 1. A note is advice, and changes nothing."""
+    rows, unread, seen = [], [], {}
+    for src in sources:
+        try:
+            label, found = _read(root, src)
+        except SourceError as exc:
+            unread.append(str(exc))
+            continue
+        for doc in found:
+            name = doc["id"] if _named(doc) else "(an entry of %s)" % label
+            if wanted and wanted.lower() not in name.lower():
+                continue
+            problems, advice, size = [], [], ""
+            try:
+                model = build(doc, root)
+                advice = notes(model)
+                size = "%s, %s" % (plural(len(model["states"]), "state", "states"),
+                                   plural(model["transitions"], "transition", "transitions"))
+            except FormatError as exc:
+                problems = list(exc.problems)
+            if name in seen:
+                problems.append("it is described twice: by %s and by %s" % (seen[name], label))
+            seen[name] = label
+            rows.append((name, problems, advice, size))
+
+    if wanted and not rows:
+        return [], 2
+    out = []
+    width = max([len(r[0]) for r in rows] + [0])
+    for name, problems, advice, size in rows:
+        if problems:
+            verdict, style = plural(len(problems), "problem", "problems"), "bad"
+        else:
+            verdict, style = "ok" + (", " + plural(len(advice), "note", "notes") if advice else ""), "ok"
+        out.append([(name.ljust(width + 3), "state"), (verdict.ljust(14), style), (size, "dim")])
+        out += [[("    problem: ", "bad"), (p, None)] for p in problems]
+        out += [[("    note: ", "dim"), (n, None)] for n in advice]
+    out += [[("could not read: ", "bad"), (u, None)] for u in unread]
+    broken = sum(1 for r in rows if r[1])
+    if rows or unread:
+        out.append([])
+    summary = "%s checked: " % plural(len(rows), "program", "programs")
+    if not broken:
+        summary += "all are fine." if len(rows) != 1 else "it is fine."
+    else:
+        summary += "%d %s fine and %d %s." % (len(rows) - broken, "is" if len(rows) - broken == 1 else "are",
+                                               broken, "has problems" if broken == 1 else "have problems")
+    if unread:
+        summary += " %s could not be read." % plural(len(unread), "source", "sources")
+    out.append([(summary, None)])
+    return out, 1 if broken or unread else 0
 
 
 # ---- the screen that stays open ----
@@ -441,11 +627,78 @@ class Browser(screen.Browser):
 
 # ---- the command ----
 
-def main(argv=None, root: str = "") -> int:
-    return screen.command(
-        argv, prog="shape",
+def main(argv=None, home: str = "", cwd=None, environ=None) -> int:
+    """The shape command. `home` is shape's own folder, where its examples and docs are."""
+    ap = argparse.ArgumentParser(
+        prog="shape",
         description="See the shape of a program: its states, every route through it and every way it goes wrong.",
-        one="a program", many="programs", all_help="print every route, however many there are",
-        elsewhere="",
-        load=lambda: [(d["id"], lambda d=d: build(d, root)) for d in load_docs(root)],
-        render_list=render_list, render_one=lambda model, more: render(model, all_paths=more), browser=Browser)
+        epilog="The programs are the ones listed in the shape.json of this folder or a folder above it. "
+               "docs/PLUG-IN.md in shape's folder says how to add one.")
+    ap.add_argument("name", nargs="?", help="a program, or part of its name (default: list them all)")
+    ap.add_argument("--all", action="store_true", help="print every route, however many there are")
+    ap.add_argument("--plain", action="store_true", help="print the text and exit, instead of opening the screen")
+    ap.add_argument("--check", action="store_true",
+                    help="check the JSON of every program, or of the named one, and say what is wrong")
+    ap.add_argument("--file", metavar="PATH", help="read this one JSON file instead of the programs in shape.json")
+    ap.add_argument("--config", metavar="PATH", help="use this list of programs instead of the shape.json found from here")
+    ap.add_argument("--version", action="version", version="shape " + VERSION)
+    args = ap.parse_args(argv)
+
+    def fail(*sentences, code=1):
+        for s in sentences:
+            print("shape: %s" % s, file=sys.stderr)
+        return code
+
+    try:
+        root, sources, above = find_sources(home, cwd or os.getcwd(), args.file, args.config, environ)
+    except SourceError as exc:
+        return fail(str(exc))
+
+    if args.check:
+        lines, code = check(root, sources, args.name)
+        if code == 2:
+            return fail("nothing is called %r, so nothing was checked" % args.name, code=2)
+        sys.stdout.write(screen.to_text(lines, color=False))
+        return code
+
+    docs, failures = load_all(root, sources)
+    ids = [d["id"] for d in docs]
+    live = sys.stdout.isatty() and sys.stdin.isatty() and not args.plain
+
+    picked = None
+    if args.name is not None:
+        wanted = args.name.lower()
+        hits = [i for i in ids if i.lower() == wanted] or [i for i in ids if wanted in i.lower()]
+        if len(hits) > 1:
+            return fail("%r fits %d names: %s" % (args.name, len(hits), ", ".join(hits)), code=2)
+        if not hits:
+            said = ["nothing is called %r" % args.name, "the programs are: %s" % (", ".join(ids) or "(none)")]
+            if failures:
+                said.append("%s could not be read; shape --check says why"
+                            % plural(len(failures), "program or source", "programs or sources"))
+            return fail(*said, code=2)
+        picked = hits[0]
+        try:
+            model = build(docs[ids.index(picked)], root)
+        except FormatError as exc:
+            return fail("%s cannot be shown, because its JSON has %s:"
+                        % (exc.id, plural(len(exc.problems), "problem", "problems")),
+                        *["    " + p for p in exc.problems])
+        if not live:
+            sys.stdout.write(screen.to_text(render(model, all_paths=args.all), color=False))
+            return 0
+
+    models = []
+    for doc in docs:
+        try:
+            models.append(build(doc, root))
+        except FormatError as exc:
+            failures.append("%s: its JSON has %s; shape --check lists them"
+                            % (exc.id, plural(len(exc.problems), "problem", "problems")))
+    if not live:
+        sys.stdout.write(screen.to_text(render_list(models, above, failures), color=False))
+        return 0
+    start = [m["id"] for m in models].index(picked) if picked else None
+    browser = Browser(models, start=start, more=args.all)
+    browser.above, browser.below = above, _unread(failures)
+    return screen.browse(browser)
