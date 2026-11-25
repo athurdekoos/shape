@@ -231,20 +231,27 @@ def test_plain_text_has_no_escape_codes_and_colour_text_does():
 # ---- where the JSON comes from ----
 
 def write_sources(root, sources):
+    """The sources as shape.json would list them; load_docs is given the list."""
     (root / "shape.json").write_text(json.dumps(sources))
+    return sources
+
+
+def load(root):
+    from screen import sources
+    return sv.load_docs(str(root), sources(str(root / "shape.json")))
 
 
 def test_a_file_source_holds_one_machine_or_many(tmp_path):
     (tmp_path / "one.json").write_text(json.dumps(sync_doc()))
     (tmp_path / "many.json").write_text(json.dumps({"machines": [machine("b", "x", [("t", "x", "go", "y")])]}))
     write_sources(tmp_path, [{"file": "one.json"}, {"file": "many.json"}])
-    assert [d["id"] for d in sv.load_docs(str(tmp_path))] == ["demo.sync", "b"]
+    assert [d["id"] for d in load(tmp_path)] == ["demo.sync", "b"]
 
 
 def test_a_command_source_is_run_and_its_json_read(tmp_path):
     (tmp_path / "emit.py").write_text("import json\nprint(json.dumps(%r))\n" % {"machines": [sync_doc()]})
     write_sources(tmp_path, [{"command": [sys.executable, "emit.py"]}])
-    assert [d["id"] for d in sv.load_docs(str(tmp_path))] == ["demo.sync"]
+    assert [d["id"] for d in load(tmp_path)] == ["demo.sync"]
 
 
 def test_a_registry_adds_the_attention_states_and_the_file(tmp_path):
@@ -254,7 +261,7 @@ def test_a_registry_adds_the_attention_states_and_the_file(tmp_path):
     (tmp_path / "reg.json").write_text(json.dumps([{"id": "demo.sync", "path": "prog/sync.py", "attention": ["auth"],
                                                     "about": "Copies the mail."}]))
     write_sources(tmp_path, [{"file": "one.json", "registry": "reg.json"}])
-    got = sv.load_docs(str(tmp_path))[0]
+    got = load(tmp_path)[0]
     assert got["attention"] == ["auth"] and got["defined_in"] == "prog/sync.py"
     assert got["about"] == "Copies the mail."
 
@@ -263,21 +270,21 @@ def test_a_command_that_fails_is_reported_with_what_it_said(tmp_path):
     (tmp_path / "boom.py").write_text("import sys\nsys.stderr.write('no machines today')\nsys.exit(3)\n")
     write_sources(tmp_path, [{"command": [sys.executable, "boom.py"]}])
     with pytest.raises(SourceError, match="no machines today"):
-        sv.load_docs(str(tmp_path))
+        load(tmp_path)
 
 
 def test_output_that_is_not_json_is_reported(tmp_path):
     (tmp_path / "bad.json").write_text("not json")
     write_sources(tmp_path, [{"file": "bad.json"}])
     with pytest.raises(SourceError, match="bad.json"):
-        sv.load_docs(str(tmp_path))
+        load(tmp_path)
 
 
 def test_two_sources_may_not_describe_the_same_program(tmp_path):
     (tmp_path / "one.json").write_text(json.dumps(sync_doc()))
     write_sources(tmp_path, [{"file": "one.json"}, {"file": "one.json"}])
     with pytest.raises(SourceError, match="demo.sync"):
-        sv.load_docs(str(tmp_path))
+        load(tmp_path)
 
 
 # ---- what a program is, in plain words ----
