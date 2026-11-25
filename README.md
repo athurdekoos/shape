@@ -125,6 +125,8 @@ JSON and do nothing else. Read a `shape.json` you did not write before you type 
 its project.
 
 - [docs/PLUG-IN.md](docs/PLUG-IN.md) walks through all three ways with code.
+- [docs/walkthrough/](docs/walkthrough/README.md) shows one small program before it had a
+  table and after.
 - [docs/FORMAT.md](docs/FORMAT.md) is the format itself, and
   [schema/shape.schema.json](schema/shape.schema.json) is the same format for a tool.
 - [examples/](examples/) has one program for each way. There is a JSON file written by hand,

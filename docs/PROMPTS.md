@@ -32,7 +32,8 @@ Change the words in capitals before you paste.
 > the program are not in the table.
 
 On 25 November 2026 an AI that had only this prompt and this repository added a backup script
-to `shape` in about five minutes, with a clean `shape --check`.
+to `shape` in about five minutes, with a clean `shape --check`. The script before and after
+is in [walkthrough/](walkthrough/README.md).
 
 For a first look that changes no code, ask for less:
 

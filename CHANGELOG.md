@@ -6,3 +6,7 @@
 - `shape --check` reads each program's JSON strictly and says in sentences what is wrong and what is probably a mistake.
 - The format is version 0.1. [docs/FORMAT.md](docs/FORMAT.md) describes it, and [schema/shape.schema.json](schema/shape.schema.json) is the same format for a tool.
 - [python/shapetable.py](python/shapetable.py) lets a Python program keep its moves in one table, run through that table and print it.
+
+## Unreleased
+
+- docs/walkthrough shows one program before it had a table and after, with tests that run both.

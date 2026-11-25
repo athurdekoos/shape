@@ -272,3 +272,6 @@ You are done when these four things are true:
 
 Start with one part of the program. A table of six states that is true is worth more than
 a table of sixty that is a guess.
+
+[walkthrough/](walkthrough/README.md) shows these six steps on one small program, with the
+code before and after.
