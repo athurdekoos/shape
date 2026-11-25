@@ -152,6 +152,55 @@ def test_a_condition_gets_its_words_from_the_function_it_names(tmp_path):
     assert "    is_auth   The error is an authentication failure.\n              conds.py:1" in out
 
 
+# ---- what describe() reads ----
+
+DOCSTRING = 'def is_auth(ctx):\n    """Read from the file."""\n    return True\n'
+
+
+def test_describe_reads_a_python_file_in_the_project(tmp_path):
+    (tmp_path / "conds.py").write_text(DOCSTRING)
+    assert sv.describe(str(tmp_path), "conds.py:1") == "Read from the file."
+
+
+def test_describe_reads_nothing_outside_the_project(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (tmp_path / "conds.py").write_text(DOCSTRING)       # beside the project, not in it
+    os.symlink(tmp_path / "conds.py", project / "link.py")
+    assert sv.describe(str(project), "../conds.py:1") == ""
+    assert sv.describe(str(project), str(tmp_path / "conds.py") + ":1") == ""
+    assert sv.describe(str(project), "link.py:1") == ""
+
+
+def test_describe_reads_only_a_regular_file_of_at_most_1_mb(tmp_path):
+    import threading
+    big = tmp_path / "big.py"
+    big.write_text(DOCSTRING + "#" * (1024 * 1024) + "\n")
+    assert sv.describe(str(tmp_path), "big.py:1") == ""
+    if not hasattr(os, "mkfifo"):
+        return
+    os.mkfifo(str(tmp_path / "pipe.py"))
+    said = []
+    reader = threading.Thread(target=lambda: said.append(sv.describe(str(tmp_path), "pipe.py:1")), daemon=True)
+    reader.start()
+    reader.join(5)
+    assert said == [""], "describe() waited on a named pipe"
+
+
+def test_describe_needs_the_line_of_the_function_itself(tmp_path):
+    (tmp_path / "conds.py").write_text("# the conditions\n\n" + DOCSTRING)
+    assert sv.describe(str(tmp_path), "conds.py:3") == "Read from the file."
+    for line in ("1", "2", "4", "\u00b2", "\u0663", "3.0", "", "x"):
+        assert sv.describe(str(tmp_path), "conds.py:" + line) == "", line
+
+
+def test_describe_survives_a_file_too_deep_to_parse(tmp_path):
+    (tmp_path / "minus.py").write_text(DOCSTRING + "y = " + "-" * 100000 + "1\n")      # MemoryError
+    assert sv.describe(str(tmp_path), "minus.py:1") == ""
+    (tmp_path / "plus.py").write_text(DOCSTRING + "y = " + "+".join(["1"] * 50000) + "\n")  # RecursionError on 3.12+
+    assert sv.describe(str(tmp_path), "plus.py:1") in ("", "Read from the file.")
+
+
 def test_a_condition_whose_function_cannot_be_read_says_so():
     built = model()  # no root: conds.py does not exist
     assert built["conditions"][0]["says"] == ""

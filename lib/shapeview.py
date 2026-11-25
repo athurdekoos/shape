@@ -21,6 +21,7 @@ import ast
 import json
 import os
 import shlex
+import stat
 import sys
 
 import screen
@@ -38,22 +39,44 @@ PATHS_SHOWN = 8        # routes printed for one end state unless --all is given
 
 # ---- the words written beside a condition ----
 
+SOURCE_LIMIT = 1024 * 1024   # the largest Python file describe() reads, in bytes
+
 _parsed = {}
 
 
+def _python_text(root: str, path: str):
+    """The text of the file at `path`, or None unless its real path is inside the folder
+    `root`, it is a regular file and it holds at most SOURCE_LIMIT bytes."""
+    top = os.path.realpath(root)
+    real = os.path.realpath(os.path.join(top, path))
+    if os.path.commonpath([top, real]) != top:
+        return None
+    # Opened without waiting, so a named pipe cannot hold shape up; then checked by what it is.
+    fd = os.open(real, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    with os.fdopen(fd, "rb") as fh:
+        info = os.fstat(fh.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_size > SOURCE_LIMIT:
+            return None
+        data = fh.read(SOURCE_LIMIT + 1)
+    if len(data) > SOURCE_LIMIT:
+        return None
+    return data.decode("utf-8")
+
+
 def describe(root: str, where: str) -> str:
-    """The first paragraph of the docstring of the Python function at `file:line`,
-    or "" when the file is not there, is not Python, or the function has none.
-    The file is parsed, never run."""
+    """The first paragraph of the docstring of the Python function at `file:line`, or ""
+    when the file is not there, is not Python, or the function has none. The file must be
+    inside the project folder `root`, a regular file and at most SOURCE_LIMIT bytes.
+    It is parsed, never run."""
     path, _, line = (where or "").rpartition(":")
-    if not root or not path.endswith(".py") or not line.isdigit():
+    if not root or not path.endswith(".py") or not (line.isascii() and line.isdigit()):
         return ""
     full = os.path.join(root, path)
     if full not in _parsed:
         try:
-            with open(full, encoding="utf-8") as fh:
-                _parsed[full] = ast.parse(fh.read())
-        except (OSError, SyntaxError, ValueError):
+            text = _python_text(root, path)
+            _parsed[full] = None if text is None else ast.parse(text)
+        except (OSError, SyntaxError, ValueError, RecursionError, MemoryError):
             _parsed[full] = None
     tree = _parsed[full]
     if tree is None:
