@@ -11,8 +11,6 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            python: "3.9"
-          - os: ubuntu-latest
             python: "3.13"
           - os: macos-latest
             python: "3.13"
@@ -27,3 +25,16 @@ jobs:
           node-version: 22
       - run: python -m pip install pytest jsonschema
       - run: python -m pytest -q
+
+  # The oldest Python shape supports. The runner no longer offers it, so uv fetches it.
+  oldest-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pipx install uv
+      - run: uv venv --python 3.9 "$RUNNER_TEMP/py39"
+      - run: uv pip install --python "$RUNNER_TEMP/py39/bin/python" pytest jsonschema
+      - run: '"$RUNNER_TEMP/py39/bin/python" -m pytest -q'
