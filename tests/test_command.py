@@ -373,6 +373,18 @@ def test_check_notes_a_key_of_a_source_that_shape_does_not_read(home):
     assert 'note: the source that lists it has a key shape does not read: "regsitry"' in r.stdout
 
 
+def test_check_exits_1_when_a_source_cannot_be_read_even_if_the_rest_are_fine(home):
+    (home / "shape.json").write_text(json.dumps([{"file": "door.json"}, {"file": "gone.json"}]))
+    r = run("--check", cwd=home)
+    assert r.returncode == 1
+    assert r.stdout.strip().splitlines()[-1] == "1 program checked: it is fine. 1 source could not be read."
+
+
+def test_check_takes_part_of_a_name_in_any_case(home):
+    r = run("--check", "DOOR", cwd=home)
+    assert r.returncode == 0 and "demo.door" in r.stdout and "demo.lamp" not in r.stdout
+
+
 def test_check_with_a_name_nothing_has_exits_2(home):
     r = run("--check", "nope", cwd=home)
     assert r.returncode == 2 and "nothing is called" in r.stderr

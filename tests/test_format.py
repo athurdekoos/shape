@@ -108,6 +108,8 @@ def test_a_description_that_is_not_an_object_is_refused(bad, word):
     ({"states": {"closed": {"on": {"push": {"target": "open", "guard": {"source": "a.py:1"}}}}, "open": {}}}, '"name"'),
     ({"states": {"closed": {"on": {"push": {"target": "open", "guard": 9}}}, "open": {}}}, "guard"),
     ({"states": {"closed": {"on": {"push": {"target": "open", "actions": [1]}}}, "open": {}}}, '"actions"'),
+    ({"states": {"closed": {"on": {"push": {"target": "open", "id": 5}}}, "open": {}}}, 'its "id" is a number'),
+    ({"states": {"closed": {"on": {"push": {"target": "open", "id": {"n": 1}}}}, "open": {}}}, 'its "id" is an object'),
     ({"attention": "stuck"}, '"attention"'),
     ({"goal": ["open"]}, '"goal"'),
     ({"about": 3}, '"about"'),

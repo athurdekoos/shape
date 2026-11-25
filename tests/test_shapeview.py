@@ -321,6 +321,12 @@ def test_a_branch_after_an_unconditional_one_is_flagged_as_never_tried():
     assert "never tried" in text(built)
 
 
+def test_every_branch_after_one_with_no_condition_is_never_tried():
+    built = sv.build(machine("shadow", "a", [("x", "a", "go", "b"), ("y", "a", "go", "c", "is_big"),
+                                             ("z", "a", "go", "d", "is_small")]))
+    assert [b["never"] for b in built["states"][0]["events"][0]["branches"]] == [False, True, True]
+
+
 def test_a_state_nothing_leads_to_is_reported_as_never_reached():
     built = sv.build(machine("orphan", "a", [("x", "a", "go", "b"), ("y", "lost", "go", "b")]))
     assert built["unreachable"] == ["lost"]
@@ -433,6 +439,26 @@ def test_only_a_first_word_with_a_separator_is_looked_up_in_the_project(tmp_path
                                                                      "--shape"]
 
 
+def test_what_a_description_says_itself_wins_over_the_registry_unless_it_is_empty(tmp_path):
+    doc = dict(sync_doc(), about="Its own sentence.")
+    (tmp_path / "one.json").write_text(json.dumps(doc))
+    (tmp_path / "reg.json").write_text(json.dumps([{"id": "demo.sync", "path": "elsewhere.py", "attention": ["auth"],
+                                                    "about": "From the registry."}]))
+    got = sv.load_docs(str(tmp_path), [{"file": "one.json", "registry": "reg.json"}])[0]
+    assert got["attention"] == ["auth", "failed"] and got["defined_in"] == "demo/sync.py"
+    assert got["about"] == "Its own sentence."
+    (tmp_path / "one.json").write_text(json.dumps(dict(doc, about="", defined_in="")))
+    got = sv.load_docs(str(tmp_path), [{"file": "one.json", "registry": "reg.json"}])[0]
+    assert got["about"] == "From the registry." and got["defined_in"] == "elsewhere.py"
+
+
+def test_the_list_shows_a_program_described_twice_once_and_says_so(tmp_path):
+    (tmp_path / "one.json").write_text(json.dumps(sync_doc()))
+    docs, failures = sv.load_all(str(tmp_path), [{"file": "one.json"}, {"file": "one.json"}])
+    assert [d["id"] for d in docs] == ["demo.sync"]
+    assert failures == ["demo.sync is described twice: by one.json and by one.json"]
+
+
 def test_a_command_that_fails_is_reported_with_what_it_said(tmp_path):
     (tmp_path / "boom.py").write_text("import sys\nsys.stderr.write('no machines today')\nsys.exit(3)\n")
     write_sources(tmp_path, [{"command": [sys.executable, "boom.py"]}])
@@ -523,6 +549,14 @@ def test_down_and_up_move_the_pick_and_stop_at_the_ends():
     b.key("down"), b.key("down"), b.key("down")
     assert "> c.third" in screen(b)[0]
     b.key("up"), b.key("up"), b.key("up"), b.key("up")
+    assert "> demo.sync" in screen(b)[0]
+
+
+def test_top_and_bottom_move_the_pick_to_the_ends_of_the_list():
+    b = browser()
+    b.key("bottom")
+    assert "> c.third" in screen(b)[0]
+    b.key("top")
     assert "> demo.sync" in screen(b)[0]
 
 
