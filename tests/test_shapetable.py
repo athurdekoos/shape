@@ -75,7 +75,8 @@ def test_the_json_is_what_shape_reads():
 
     built = sv.build(doc)
     assert [s["name"] for s in built["states"]] == ["new", "paying", "shipped", "declined", "failed"]
-    assert sv.notes(built) == ['the condition "is_slow" has no sentence beside it']
+    assert sv.notes(built) == ['the condition "is_slow" has no sentence: give its guard a "says", or its Python '
+                               'function a docstring']
 
 
 def test_printing_gives_one_description_or_a_list_of_them():

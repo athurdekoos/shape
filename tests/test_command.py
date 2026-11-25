@@ -19,11 +19,12 @@ LAMP = {"id": "demo.lamp", "initial": "off", "about": "A lamp.", "attention": []
         "states": {"off": {"on": {"press": "on"}}, "on": {"on": {"press": "off"}}}}
 
 
-def run(*args, cwd=None, exe=None, env=None):
+def run(*args, cwd=None, exe=None, env=None, stdin=None):
     full = dict(os.environ)
     full.pop("SHAPE_CONFIG", None)
     full.update(env or {})
-    return subprocess.run([sys.executable, str(exe or SHAPE), *args], capture_output=True, text=True, cwd=cwd, env=full)
+    return subprocess.run([sys.executable, str(exe or SHAPE), *args], capture_output=True, text=True, cwd=cwd, env=full,
+                          input=stdin)
 
 
 @pytest.fixture
@@ -68,6 +69,28 @@ def test_file_reads_one_json_file_without_any_shape_json(tmp_path):
     assert run("door", "--file", "door.json", cwd=tmp_path).stdout.startswith("demo.door")
 
 
+def test_a_file_with_one_program_opens_on_that_program(tmp_path):
+    (tmp_path / "door.json").write_text(json.dumps(DOOR))
+    r = run("--file", "door.json", cwd=tmp_path)
+    assert r.stdout.startswith("demo.door") and "▶ closed · start" in r.stdout
+
+
+def test_a_file_with_several_programs_lists_them_and_says_how_to_open_one(tmp_path):
+    (tmp_path / "two.json").write_text(json.dumps({"machines": [DOOR, LAMP]}))
+    r = run("--file", "two.json", cwd=tmp_path)
+    assert "PROGRAM" in r.stdout and "demo.door" in r.stdout and "demo.lamp" in r.stdout
+    assert "shape NAME --file two.json" in r.stdout
+
+
+def test_a_dash_reads_the_json_from_standard_input(tmp_path):
+    r = run("--file", "-", cwd=tmp_path, stdin=json.dumps(DOOR))
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.startswith("demo.door")
+    assert "ok" in run("--check", "--file", "-", cwd=tmp_path, stdin=json.dumps(DOOR)).stdout
+    bad = run("--file", "-", cwd=tmp_path, stdin="{not json")
+    assert bad.returncode == 1 and "standard input" in bad.stderr and "Traceback" not in bad.stderr
+
+
 def test_with_no_shape_json_it_shows_its_own_examples_and_says_so(tmp_path):
     r = run(cwd=tmp_path)
     assert r.returncode == 0, r.stderr
@@ -95,6 +118,12 @@ def test_part_of_a_name_is_enough_and_an_ambiguous_one_lists_the_candidates(home
 def test_an_unknown_name_lists_what_exists(home):
     r = run("nope", cwd=home)
     assert r.returncode == 2 and "nothing is called" in r.stderr and "demo.door" in r.stderr
+
+
+def test_an_unknown_name_says_when_the_list_is_the_examples(tmp_path):
+    r = run("door", cwd=tmp_path)
+    assert r.returncode == 2 and "coffee.machine" in r.stderr
+    assert "examples that come with shape" in r.stderr and "--file" in r.stderr
 
 
 def test_piped_output_is_plain(home):
@@ -179,6 +208,21 @@ def test_check_prints_notes_and_still_exits_0(home):
     assert r.returncode == 0, r.stdout
     assert "note" in r.stdout and '"burning"' in r.stdout
     assert "demo.lamp" not in r.stdout
+
+
+def test_the_summary_counts_the_notes_and_does_not_call_them_fine(home):
+    (home / "door.json").write_text(json.dumps(dict(DOOR, attention=["stuck", "burning"], about=None)))
+    r = run("--check", cwd=home)
+    assert r.returncode == 0
+    last = r.stdout.strip().splitlines()[-1]
+    assert last == "2 programs checked: no problems, and 2 notes."
+
+
+def test_the_summary_when_nothing_could_be_read(tmp_path):
+    (tmp_path / "shape.json").write_text(json.dumps([{"file": "gone.json"}]))
+    r = run("--check", cwd=tmp_path)
+    assert r.returncode == 1
+    assert r.stdout.strip().splitlines()[-1] == "No program was checked. 1 source could not be read."
 
 
 def test_check_with_a_name_nothing_has_exits_2(home):

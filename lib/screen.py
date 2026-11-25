@@ -112,7 +112,10 @@ def sources(config: str) -> list:
 
 
 def read_source(root: str, src: dict):
-    if isinstance(src.get("file"), str):
+    if src.get("stdin") is True:
+        import sys
+        label, raw = "standard input", sys.stdin.read()
+    elif isinstance(src.get("file"), str):
         label = src["file"]
         try:
             with open(os.path.join(root, src["file"]), encoding="utf-8") as fh:

@@ -102,6 +102,7 @@ def build(doc: dict, root: str = "") -> dict:
             for raw in branches:
                 actions = raw["actions"]
                 branch = {"id": raw.get("id"), "target": raw["target"], "guard": condition(raw.get("guard")),
+                          "where": raw["where"],
                           "action": ", ".join(actions) if actions else None,
                           "attention": raw["target"] in attention, "never": False}
                 outgoing.setdefault(name, []).append((event, branch))
@@ -198,7 +199,7 @@ def build(doc: dict, root: str = "") -> dict:
         # what notes() needs: what the description itself listed
         "declared": list(states_doc), "extra": doc["extra"], "attention_named": attention,
         "attention_listed": doc["listed_attention"],
-        "ids": [b["id"] for moves in outgoing.values() for _event, b in moves if b["id"]],
+        "ids": [(b["id"], b["where"]) for moves in outgoing.values() for _event, b in moves if b["id"]],
     }
 
 
@@ -226,18 +227,19 @@ def notes(model: dict) -> list:
                                % (where, b["target"]))
             if e["open"]:
                 out.append("%s: every branch has a condition, so nothing is declared for when none holds" % where)
-    for tid in sorted({i for i in model["ids"] if model["ids"].count(i) > 1}):
-        out.append('the id "%s" is given to more than one branch' % tid)
+    ids = [i for i, _where in model["ids"]]
+    for tid in sorted({i for i in ids if ids.count(i) > 1}):
+        out.append('the id "%s" is given to more than one branch: %s'
+                   % (tid, " and ".join(where for i, where in model["ids"] if i == tid)))
     for c in model["conditions"]:
         if not c["says"]:
-            out.append('the condition "%s" has no sentence beside it' % c["name"])
+            out.append('the condition "%s" has no sentence: give its guard a "says", or its Python function '
+                       'a docstring' % c["name"])
     if not model["about"]:
         out.append('it has no "about", the one sentence that says what the program is')
     if not model["attention_listed"]:
         out.append('it has no "attention" list, so shape cannot say which states are the ways it goes wrong')
-    for key in model["extra"]:
-        out.append('it has a key shape does not read: "%s"' % key)
-    return out
+    return out + list(model["extra"])
 
 
 # ---- the text ----
@@ -397,8 +399,9 @@ def _unread(failures: list) -> list:
     return out + [[]]
 
 
-def render_list(models: list, above=(), failures=()) -> list:
-    """The printed list: one row per program."""
+def render_list(models: list, above=(), failures=(), flags: str = "") -> list:
+    """The printed list: one row per program. `flags` is what must be typed again to see the same
+    programs, such as " --file two.json"."""
     out = [line for line in above]
     if above:
         out.append([])
@@ -408,32 +411,36 @@ def render_list(models: list, above=(), failures=()) -> list:
     else:
         out += [[("No program is listed yet.", None)], []]
     out += _unread(list(failures))
-    out.append([("shape NAME opens one; part of a name is enough.", "dim")])
+    out.append([("shape NAME%s opens one; part of a name is enough." % flags, "dim")])
     return out
 
 
 # ---- where the JSON comes from ----
 
 def find_sources(home: str, cwd: str, file=None, config=None, environ=None):
-    """(root, sources, above): the folder that paths and commands start from, the list of
-    sources, and lines to show above the list.
+    """(root, sources, above, flags): the folder that paths and commands start from, the list
+    of sources, lines to show above the list, and the flags to type again to see the same list.
 
-    --file names one JSON file. Otherwise the list is --config, or $SHAPE_CONFIG, or the
+    --file names one JSON file, or - for standard input. Otherwise the list is --config, or $SHAPE_CONFIG, or the
     shape.json in the folder shape was typed in or the nearest folder above it. When there
     is none, the examples in shape's own folder are shown, and the lines above say so."""
     environ = os.environ if environ is None else environ
+    if file == "-":
+        return os.path.abspath(cwd), [{"stdin": True}], [], " --file -"
     if file:
         path = os.path.abspath(os.path.join(cwd, file))
-        return os.path.dirname(path), [{"file": os.path.basename(path)}], []
-    named = config or environ.get("SHAPE_CONFIG")
-    if named:
-        path = os.path.abspath(os.path.join(cwd, named))
-        return os.path.dirname(path), screen.sources(path), []
+        return os.path.dirname(path), [{"file": os.path.basename(path)}], [], " --file " + file
+    if config:
+        path = os.path.abspath(os.path.join(cwd, config))
+        return os.path.dirname(path), screen.sources(path), [], " --config " + config
+    if environ.get("SHAPE_CONFIG"):
+        path = os.path.abspath(os.path.join(cwd, environ["SHAPE_CONFIG"]))
+        return os.path.dirname(path), screen.sources(path), [], ""
     folder = os.path.abspath(cwd)
     while True:
         path = os.path.join(folder, CONFIG)
         if os.path.isfile(path):
-            return folder, screen.sources(path), []
+            return folder, screen.sources(path), [], ""
         parent = os.path.dirname(folder)
         if parent == folder:
             break
@@ -442,7 +449,7 @@ def find_sources(home: str, cwd: str, file=None, config=None, environ=None):
     above = [[("These are the examples that come with shape.", None)],
              [("No %s was found in this folder or in a folder above it. %s says how to list your own programs."
                % (CONFIG, os.path.join(home, "docs", "PLUG-IN.md")), "dim")]]
-    return root, screen.sources(os.path.join(root, CONFIG)), above
+    return root, screen.sources(os.path.join(root, CONFIG)), above, ""
 
 
 def _read(root: str, src) -> tuple:
@@ -564,8 +571,13 @@ def check(root: str, sources: list, wanted=None) -> tuple:
     broken = sum(1 for r in rows if r[1])
     if rows or unread:
         out.append([])
+    noted = sum(len(r[2]) for r in rows)
     summary = "%s checked: " % plural(len(rows), "program", "programs")
-    if not broken:
+    if not rows:
+        summary = "No program was checked."
+    elif not broken and noted:
+        summary += "no problems, and %s." % plural(noted, "note", "notes")
+    elif not broken:
         summary += "all are fine." if len(rows) != 1 else "it is fine."
     else:
         summary += "%d %s fine and %d %s." % (len(rows) - broken, "is" if len(rows) - broken == 1 else "are",
@@ -639,7 +651,8 @@ def main(argv=None, home: str = "", cwd=None, environ=None) -> int:
     ap.add_argument("--plain", action="store_true", help="print the text and exit, instead of opening the screen")
     ap.add_argument("--check", action="store_true",
                     help="check the JSON of every program, or of the named one, and say what is wrong")
-    ap.add_argument("--file", metavar="PATH", help="read this one JSON file instead of the programs in shape.json")
+    ap.add_argument("--file", metavar="PATH",
+                    help="read this one JSON file instead of the programs in shape.json; - reads standard input")
     ap.add_argument("--config", metavar="PATH", help="use this list of programs instead of the shape.json found from here")
     ap.add_argument("--version", action="version", version="shape " + VERSION)
     args = ap.parse_args(argv)
@@ -650,7 +663,7 @@ def main(argv=None, home: str = "", cwd=None, environ=None) -> int:
         return code
 
     try:
-        root, sources, above = find_sources(home, cwd or os.getcwd(), args.file, args.config, environ)
+        root, sources, above, flags = find_sources(home, cwd or os.getcwd(), args.file, args.config, environ)
     except SourceError as exc:
         return fail(str(exc))
 
@@ -662,10 +675,14 @@ def main(argv=None, home: str = "", cwd=None, environ=None) -> int:
         return code
 
     docs, failures = load_all(root, sources)
+    if args.file and failures and not docs:
+        return fail(*failures)      # the one file that was asked for could not be read
     ids = [d["id"] for d in docs]
     live = sys.stdout.isatty() and sys.stdin.isatty() and not args.plain
 
     picked = None
+    if args.name is None and args.file and len(ids) == 1 and not failures:
+        args.name = ids[0]          # one file that holds one program: open on it
     if args.name is not None:
         wanted = args.name.lower()
         hits = [i for i in ids if i.lower() == wanted] or [i for i in ids if wanted in i.lower()]
@@ -674,8 +691,11 @@ def main(argv=None, home: str = "", cwd=None, environ=None) -> int:
         if not hits:
             said = ["nothing is called %r" % args.name, "the programs are: %s" % (", ".join(ids) or "(none)")]
             if failures:
-                said.append("%s could not be read; shape --check says why"
-                            % plural(len(failures), "program or source", "programs or sources"))
+                said.append("%s could not be read; shape --check%s says why"
+                            % (plural(len(failures), "program or source", "programs or sources"), flags))
+            if above:
+                said.append("these are the examples that come with shape, because no %s was found from this "
+                            "folder up; shape --file PATH reads one JSON file" % CONFIG)
             return fail(*said, code=2)
         picked = hits[0]
         try:
@@ -693,10 +713,10 @@ def main(argv=None, home: str = "", cwd=None, environ=None) -> int:
         try:
             models.append(build(doc, root))
         except FormatError as exc:
-            failures.append("%s: its JSON has %s; shape --check lists them"
-                            % (exc.id, plural(len(exc.problems), "problem", "problems")))
+            failures.append("%s: its JSON has %s; shape --check%s lists them"
+                            % (exc.id, plural(len(exc.problems), "problem", "problems"), flags))
     if not live:
-        sys.stdout.write(screen.to_text(render_list(models, above, failures), color=False))
+        sys.stdout.write(screen.to_text(render_list(models, above, failures, flags), color=False))
         return 0
     start = [m["id"] for m in models].index(picked) if picked else None
     browser = Browser(models, start=start, more=args.all)

@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from shapetable import Machine, T  # noqa: E402
 
 
-# ---- the conditions: each one's first sentence is shown by shape ----
+# ---- the conditions: shape shows the first paragraph of each docstring ----
 
 def is_declined(order):
     """The bank refused the card."""

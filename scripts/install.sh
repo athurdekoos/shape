@@ -20,6 +20,6 @@ case ":$PATH:" in
     echo "Installed. Type: shape" ;;
   *)
     echo "Linked $BIN_DIR/shape, but $BIN_DIR is not on your PATH in this shell."
-    echo "Add it once, then open a new terminal:"
-    echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc" ;;
+    echo "Add this line to your shell's startup file (~/.zshrc or ~/.bashrc), then open a new terminal:"
+    echo "  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
 esac

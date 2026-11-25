@@ -9,6 +9,9 @@ Standard library only, Python 3.9 compatible.
 from __future__ import annotations
 
 KEYS = ("id", "initial", "states", "goal", "attention", "about", "defined_in")
+STATE_KEYS = ("on",)
+BRANCH_KEYS = ("id", "target", "guard", "actions")
+GUARD_KEYS = ("name", "source", "says")
 
 
 class FormatError(ValueError):
@@ -29,7 +32,7 @@ def _text(value) -> bool:
     return isinstance(value, str) and bool(value)
 
 
-def _guard(raw, where: str, say):
+def _guard(raw, where: str, say, extra):
     """A condition as {"name", "source", "says"}, or None when the branch has none."""
     if raw is None:
         return None
@@ -43,6 +46,7 @@ def _guard(raw, where: str, say):
         say('%s: its guard has no "name"' % where)
         return None
     guard = {"name": raw["name"], "source": "", "says": ""}
+    extra += ['%s: the guard has a key shape does not read: "%s"' % (where, k) for k in raw if k not in GUARD_KEYS]
     for key in ("source", "says"):
         if raw.get(key) is None:
             continue
@@ -53,10 +57,10 @@ def _guard(raw, where: str, say):
     return guard
 
 
-def _branch(raw, where: str, say):
-    """One branch as {"id", "target", "guard", "actions"}, or None when it cannot be read."""
+def _branch(raw, where: str, say, extra):
+    """One branch as {"id", "target", "guard", "actions", "where"}, or None when it cannot be read."""
     if _text(raw):
-        return {"id": None, "target": raw, "guard": None, "actions": []}
+        return {"id": None, "target": raw, "guard": None, "actions": [], "where": where}
     if not isinstance(raw, dict):
         say('%s: it is %s, and it should be the name of a state or an object such as {"target": "done"}'
             % (where, _kind(raw)))
@@ -76,21 +80,26 @@ def _branch(raw, where: str, say):
     if tid is not None and not _text(tid):
         say('%s: its "id" is %s, and it should be a string' % (where, _kind(tid)))
         tid = None
-    return {"id": tid, "target": raw["target"], "guard": _guard(raw.get("guard"), where, say), "actions": list(actions)}
+    extra += ['%s: the branch has a key shape does not read: "%s"' % (where, k) for k in raw if k not in BRANCH_KEYS]
+    return {"id": tid, "target": raw["target"], "guard": _guard(raw.get("guard"), where, say, extra),
+            "actions": list(actions), "where": where}
 
 
 def read(doc) -> dict:
     """One description with every shorthand written out:
 
         {"id", "initial", "states": {name: {"on": {event: [branch, ...]}}},
-         "goal", "attention": [...], "about", "defined_in", "extra": [keys shape does not read]}
+         "goal", "attention": [...], "about", "defined_in",
+         "extra": [a sentence for each key shape does not read]}
 
-    where a branch is {"id", "target", "guard": None or {"name", "source", "says"}, "actions": [...]}.
+    where a branch is {"id", "target", "guard": None or {"name", "source", "says"}, "actions": [...],
+    "where": the words that name its state and event}.
     Raises FormatError with every problem when the description is wrong."""
     if not isinstance(doc, dict):
         raise FormatError("(no id)", ["a description is a JSON object, and this is %s" % _kind(doc)])
     problems = []
     say = problems.append
+    extra = ['it has a key shape does not read: "%s"' % k for k in doc if k not in KEYS]
 
     name = doc.get("id")
     if not _text(name):
@@ -113,6 +122,7 @@ def read(doc) -> dict:
             say('state "%s": its entry is %s, and it should be an object such as {"on": {...}} or {}'
                 % (state, _kind(body)))
             body = {}
+        extra += ['state "%s" has a key shape does not read: "%s"' % (state, k) for k in body if k not in STATE_KEYS]
         events = body.get("on")
         if events is None:
             events = {}
@@ -128,7 +138,7 @@ def read(doc) -> dict:
                 say("%s: it lists no branch" % where)
             found = []
             for n, raw in enumerate(raws, start=1):
-                branch = _branch(raw, where + (", branch %d" % n if len(raws) > 1 else ""), say)
+                branch = _branch(raw, where + (", branch %d" % n if len(raws) > 1 else ""), say, extra)
                 if branch:
                     found.append(branch)
             if found:
@@ -159,4 +169,4 @@ def read(doc) -> dict:
     return {"id": name, "initial": initial, "states": states, "goal": goal, "attention": list(attention),
             "about": texts["about"] or "", "defined_in": texts["defined_in"] or "",
             "listed_attention": doc.get("attention") is not None,
-            "extra": [k for k in doc if k not in KEYS]}
+            "extra": extra}

@@ -22,7 +22,8 @@ def text(d):
 
 def test_an_event_may_name_its_target_as_a_string():
     read = sf.read(doc())
-    assert read["states"]["closed"]["on"]["push"] == [{"id": None, "target": "open", "guard": None, "actions": []}]
+    assert read["states"]["closed"]["on"]["push"] == [{"id": None, "target": "open", "guard": None, "actions": [],
+                                                       "where": 'state "closed", event "push"'}]
     assert "      push → open" in text(doc())
 
 
@@ -149,3 +150,26 @@ def test_a_clean_description_has_no_notes():
 def test_each_note(change, word):
     found = notes(doc(**change))
     assert any(word in n for n in found), found
+
+
+def test_a_key_shape_does_not_read_is_noted_wherever_it_is():
+    states = {"closed": {"On": {"push": "open"}, "on": {"push": {"target": "open", "cond": "is_light"},
+                                                        "jam": {"target": "stuck", "guard": {"name": "g", "say": "It is."}}}},
+              "open": {}, "stuck": {}}
+    found = notes(doc(states=states))
+    assert 'state "closed" has a key shape does not read: "On"' in found
+    assert 'state "closed", event "push": the branch has a key shape does not read: "cond"' in found
+    assert 'state "closed", event "jam": the guard has a key shape does not read: "say"' in found
+
+
+def test_the_note_about_a_repeated_id_says_where_each_one_is():
+    states = {"closed": {"on": {"push": {"id": "t1", "target": "open"}, "jam": {"id": "t1", "target": "stuck"}}},
+              "open": {}, "stuck": {}}
+    found = [n for n in notes(doc(states=states)) if '"t1"' in n]
+    assert found == ['the id "t1" is given to more than one branch: state "closed", event "push" and '
+                     'state "closed", event "jam"']
+
+
+def test_the_note_about_a_condition_names_the_key_to_add():
+    states = {"closed": {"on": {"push": [{"target": "open", "guard": "is_light"}, "stuck"]}}, "open": {}, "stuck": {}}
+    assert any('"says"' in n for n in notes(doc(states=states)))
