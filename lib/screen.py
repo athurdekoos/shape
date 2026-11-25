@@ -20,6 +20,15 @@ class SourceError(Exception):
     """A source in shape.json could not be read."""
 
 
+class Refused(dict):
+    """A source whose command shape will not run, because of the shape.json that lists it.
+    `why` is the sentence that says so."""
+
+    def __init__(self, src: dict, why: str):
+        dict.__init__(self, src)
+        self.why = why
+
+
 def plural(n: int, one: str, many: str) -> str:
     return "%d %s" % (n, one if n == 1 else many)
 
@@ -111,6 +120,16 @@ def sources(config: str) -> list:
     return found
 
 
+def command_words(root: str, command: list) -> list:
+    """The words to run. The first word is looked up in the project folder only when it is a
+    path, such as tools/emit.sh. A bare name such as python3 is found on the PATH, even when
+    the project holds a file of that name."""
+    word = command[0]
+    if os.sep in word or (os.altsep and os.altsep in word):
+        return [os.path.join(root, word)] + list(command[1:])
+    return list(command)
+
+
 def read_source(root: str, src: dict):
     if src.get("stdin") is True:
         import sys
@@ -123,11 +142,10 @@ def read_source(root: str, src: dict):
         except (OSError, UnicodeDecodeError) as exc:
             raise SourceError("%s: %s" % (label, getattr(exc, "strerror", None) or exc))
     elif isinstance(src.get("command"), list) and src["command"] and all(isinstance(c, str) for c in src["command"]):
-        command = list(src["command"])
-        label = " ".join(command)
-        first = os.path.join(root, command[0])
-        if os.path.isfile(first):
-            command[0] = first
+        label = " ".join(src["command"])
+        if isinstance(src, Refused):
+            raise SourceError("%s: %s" % (label, src.why))
+        command = command_words(root, src["command"])
         try:
             done = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=60)
         except subprocess.TimeoutExpired:

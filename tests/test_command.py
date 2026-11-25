@@ -2,6 +2,7 @@
 says when something is wrong."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -105,6 +106,52 @@ def test_it_works_through_a_link_from_any_folder(tmp_path):
     r = run("coffee", cwd=str(tmp_path), exe=link)
     assert r.returncode == 0, r.stderr
     assert r.stdout.startswith("coffee.machine")
+
+
+# ---- what shape runs ----
+
+def marker_program(path, marker):
+    """A program that prints LAMP and leaves a file behind, so a test can tell that it ran."""
+    path.write_text("import json, pathlib\npathlib.Path(%r).write_text('ran')\nprint(json.dumps(%r))\n"
+                    % (str(marker), LAMP))
+
+
+def test_a_shape_json_that_anyone_can_change_does_not_run_its_commands(home):
+    ran = home / "ran.txt"
+    marker_program(home / "lamp.py", ran)
+    os.chmod(home / "shape.json", 0o666)
+    r = run("--check", cwd=home)
+    assert not ran.exists()
+    assert r.returncode == 1 and "demo.door" in r.stdout
+    assert "anyone on this computer can change" in r.stdout and "shape --config" in r.stdout
+    listing = run(cwd=home)
+    assert not ran.exists() and "Could not read" in listing.stdout and "demo.door" in listing.stdout
+    assert run("--check", "--config", "shape.json", cwd=home).returncode == 0 and ran.exists()
+
+
+def test_a_shape_json_another_user_owns_does_not_run_its_commands(home, monkeypatch, capsys):
+    import shapeview as sv
+    ran = home / "ran.txt"
+    marker_program(home / "lamp.py", ran)
+    monkeypatch.setattr(os, "getuid", lambda: os.stat(home / "shape.json").st_uid + 1, raising=False)
+    code = sv.main(["--check"], home=str(REPO), cwd=str(home), environ={})
+    out = capsys.readouterr().out
+    assert not ran.exists() and code == 1
+    assert "belongs to another user" in out and "shape --config" in out
+    code = sv.main(["--check"], home=str(REPO), cwd=str(home), environ={"SHAPE_CONFIG": str(home / "shape.json")})
+    assert code == 0 and ran.exists()
+
+
+@pytest.mark.skipif(shutil.which("python3") is None, reason="python3 is not on the PATH")
+def test_a_bare_command_name_is_never_a_file_in_the_project(home):
+    ran = home / "ran.txt"
+    planted = home / "python3"
+    planted.write_text("#!/bin/sh\necho planted > '%s'\n" % ran)
+    planted.chmod(0o755)
+    (home / "shape.json").write_text(json.dumps([{"command": ["python3", "lamp.py"]}]))
+    r = run("--check", cwd=home)
+    assert not ran.exists()
+    assert r.returncode == 0 and "demo.lamp" in r.stdout, r.stdout
 
 
 # ---- names ----

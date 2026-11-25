@@ -266,6 +266,14 @@ def test_a_registry_adds_the_attention_states_and_the_file(tmp_path):
     assert got["about"] == "Copies the mail."
 
 
+def test_only_a_first_word_with_a_separator_is_looked_up_in_the_project(tmp_path):
+    from screen import command_words
+    (tmp_path / "python3").write_text("")
+    assert command_words(str(tmp_path), ["python3", "emit.py"]) == ["python3", "emit.py"]
+    assert command_words(str(tmp_path), ["tools/emit", "--shape"]) == [os.path.join(str(tmp_path), "tools/emit"),
+                                                                     "--shape"]
+
+
 def test_a_command_that_fails_is_reported_with_what_it_said(tmp_path):
     (tmp_path / "boom.py").write_text("import sys\nsys.stderr.write('no machines today')\nsys.exit(3)\n")
     write_sources(tmp_path, [{"command": [sys.executable, "boom.py"]}])

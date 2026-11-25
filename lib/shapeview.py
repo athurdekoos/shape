@@ -20,6 +20,7 @@ import argparse
 import ast
 import json
 import os
+import shlex
 import sys
 
 import screen
@@ -440,7 +441,7 @@ def find_sources(home: str, cwd: str, file=None, config=None, environ=None):
     while True:
         path = os.path.join(folder, CONFIG)
         if os.path.isfile(path):
-            return folder, screen.sources(path), [], ""
+            return folder, _guarded(path, screen.sources(path)), [], ""
         parent = os.path.dirname(folder)
         if parent == folder:
             break
@@ -450,6 +451,31 @@ def find_sources(home: str, cwd: str, file=None, config=None, environ=None):
              [("No %s was found in this folder or in a folder above it. %s says how to list your own programs."
                % (CONFIG, os.path.join(home, "docs", "PLUG-IN.md")), "dim")]]
     return root, screen.sources(os.path.join(root, CONFIG)), above, ""
+
+
+def _distrust(path: str) -> str:
+    """Why the commands in the shape.json at `path` may not run, or "" when they may. A shape.json
+    that shape finds by itself must belong to the person running shape, and nobody else may be
+    able to change it. One named with --config or SHAPE_CONFIG is trusted."""
+    try:
+        infos = (os.lstat(path), os.stat(path))
+    except (OSError, ValueError):
+        return ""
+    if hasattr(os, "getuid") and any(info.st_uid != os.getuid() for info in infos):
+        return "%s belongs to another user" % path
+    if infos[1].st_mode & 0o002:
+        return "anyone on this computer can change %s" % path
+    return ""
+
+
+def _guarded(path: str, sources: list) -> list:
+    """The sources of the shape.json at `path`, with each command refused when that file is not trusted."""
+    why = _distrust(path)
+    if not why:
+        return sources
+    sentence = ("shape did not run this command, because %s. If you trust that file, shape --config %s runs it."
+                % (why, shlex.quote(path)))
+    return [screen.Refused(src, sentence) if isinstance(src, dict) and "command" in src else src for src in sources]
 
 
 def _read(root: str, src) -> tuple:
