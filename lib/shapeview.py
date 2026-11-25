@@ -689,7 +689,24 @@ class Browser(screen.Browser):
 # ---- the command ----
 
 def main(argv=None, home: str = "", cwd=None, environ=None) -> int:
-    """The shape command. `home` is shape's own folder, where its examples and docs are."""
+    """The shape command. `home` is shape's own folder, where its examples and docs are.
+    Text the terminal cannot show becomes "?", and a reader that goes away early, as
+    `shape --plain | head` does, ends the command quietly."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
+    try:
+        code = _command(argv, home, cwd, environ)
+        sys.stdout.flush()
+        return code
+    except BrokenPipeError:
+        try:        # so that Python does not complain again when it closes standard output
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        except (OSError, ValueError):
+            pass
+        return 0
+
+
+def _command(argv, home: str, cwd, environ) -> int:
     ap = argparse.ArgumentParser(
         prog="shape",
         description="See the shape of a program: its states, every route through it and every way it goes wrong.",
@@ -708,7 +725,7 @@ def main(argv=None, home: str = "", cwd=None, environ=None) -> int:
 
     def fail(*sentences, code=1):
         for s in sentences:
-            print("shape: %s" % s, file=sys.stderr)
+            print("shape: %s" % screen.clean(s), file=sys.stderr)
         return code
 
     try:

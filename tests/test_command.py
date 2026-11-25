@@ -177,6 +177,45 @@ def test_piped_output_is_plain(home):
     assert "\x1b[" not in run("door", cwd=home).stdout
 
 
+ODD = {"id": "odd.one", "initial": "a", "about": "x\u001b]0;pwned\u0007\u001b[2Khidden", "attention": [],
+       "states": {"a": {"on": {"go": "a\u0000b"}}, "a\u0000b": {}}}
+
+
+def test_control_characters_in_a_description_are_not_sent_to_the_terminal(tmp_path):
+    (tmp_path / "odd.json").write_text(json.dumps(ODD))
+    for args in (("--plain",), ("--check",)):
+        r = run("--file", "odd.json", *args, cwd=tmp_path)
+        assert r.returncode == 0, r.stderr
+        assert "\x1b" not in r.stdout and "\x00" not in r.stdout and "\x07" not in r.stdout
+    outline = run("--file", "odd.json", "--plain", cwd=tmp_path).stdout
+    assert "x?]0;pwned??[2Khidden" in outline and "go → a?b" in outline
+
+
+def test_text_python_cannot_encode_does_not_stop_the_output(tmp_path):
+    (tmp_path / "s.json").write_text('{"id": "s\\ud800", "initial": "a", "about": "A.", "attention": [], "states": {"a": {}}}')
+    for args in (("--plain",), ("--check",)):
+        r = run("--file", "s.json", *args, cwd=tmp_path)
+        assert r.returncode == 0 and "Traceback" not in r.stderr, r.stderr
+        assert "s?" in r.stdout
+    ascii_only = run("coffee", "--plain", env={"PYTHONIOENCODING": "ascii"}, cwd=tmp_path)
+    assert ascii_only.returncode == 0 and "Traceback" not in ascii_only.stderr, ascii_only.stderr
+    assert "? idle ? start" in ascii_only.stdout
+
+
+def test_a_pipe_that_closes_early_ends_quietly(tmp_path):
+    ends = {"a_rather_long_name_for_an_end_state_%04d" % i: {} for i in range(1900)}
+    many = {"id": "many.ends", "initial": "s", "about": "Many ends.", "attention": [],
+            "states": dict({"s": {"on": {"e%d" % i: name for i, name in enumerate(ends)}}}, **ends)}
+    (tmp_path / "many.json").write_text(json.dumps(many))
+    p = subprocess.Popen([sys.executable, str(SHAPE), "--file", "many.json", "--plain", "--all"], cwd=tmp_path,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p.stdout.close()            # the reader goes away before shape has printed, as with | head
+    err = p.stderr.read().decode()
+    p.stderr.close()
+    assert p.wait(timeout=30) == 0, err
+    assert err == ""
+
+
 def test_version():
     r = run("--version")
     assert r.returncode == 0 and r.stdout.startswith("shape ")
@@ -288,6 +327,22 @@ def test_on_a_real_terminal_it_stays_open_until_q(home):
         second = term.read_for(1.5)
         assert term.running()
         assert "· start" in second and "esc" in second
+        term.press(b"q")
+        assert term.wait() == 0
+
+
+def test_the_screen_shows_control_characters_as_question_marks(tmp_path):
+    (tmp_path / "odd.json").write_text(json.dumps(ODD))
+    with Terminal(SHAPE, "--file", "odd.json", cwd=str(tmp_path)) as term:
+        first = term.read_for(2.0)
+        assert term.running(), "shape closed by itself: %r" % first[-300:]
+        assert "pwned" in first and "\x07" not in first and "?]0;pwned" in first
+        term.press(b"\x1b")
+        term.read_for(0.5)
+        term.press(b"\r")
+        second = term.read_for(1.5)
+        assert term.running(), second[-300:]
+        assert "a?b" in second
         term.press(b"q")
         assert term.wait() == 0
 

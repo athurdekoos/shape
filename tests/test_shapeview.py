@@ -277,6 +277,15 @@ def test_plain_text_has_no_escape_codes_and_colour_text_does():
     assert ANSI.sub("", coloured) == to_text(lines, color=False)
 
 
+def test_control_characters_reach_the_terminal_as_question_marks():
+    from screen import clean
+    assert clean("a\x1b]0;x\x07b\x00c\x7f\x9bd\ud800e\tf\ng") == "a?]0;x?b?c??d?e?f?g"
+    assert clean("▶ idle · start → é") == "▶ idle · start → é"
+    lines = [[("x\x1b[2Khidden", None), (" ok", "dim")]]
+    assert to_text(lines, color=False) == "x?[2Khidden ok\n"
+    assert "\x1b[2K" not in to_text(lines, color=True)
+
+
 # ---- where the JSON comes from ----
 
 def write_sources(root, sources):

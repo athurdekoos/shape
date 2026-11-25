@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 
 
@@ -35,6 +36,16 @@ def plural(n: int, one: str, many: str) -> str:
 
 # ---- lines as text ----
 
+_CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\ud800-\udfff]")
+
+
+def clean(text: str) -> str:
+    """The text as it may reach a terminal: every control character, and every half of a
+    character that cannot be printed (a lone surrogate), is shown as "?". A description
+    cannot then move the cursor, set the window's title or hide a line."""
+    return _CONTROL.sub("?", text)
+
+
 STYLES = {"title": "1", "head": "1", "state": "1;35", "target": "36", "bad": "1;31", "ok": "32", "dim": "90"}
 
 
@@ -43,6 +54,7 @@ def to_text(lines: list, color: bool = False) -> str:
     for line in lines:
         row = ""
         for piece, style in line:
+            piece = clean(piece)
             code = STYLES.get(style) if color else None
             row += "\x1b[%sm%s\x1b[0m" % (code, piece) if code and piece else piece
         rows.append(row.rstrip() if not color else row)
@@ -327,6 +339,7 @@ def browse(browser: Browser) -> int:
             for y, line in enumerate(body):
                 x = 0
                 for text, style in line:
+                    text = clean(text)
                     if style == "sel":
                         text = text.ljust(max(0, width - 1))
                     try:
@@ -335,7 +348,7 @@ def browse(browser: Browser) -> int:
                         pass
                     x += len(text)
             try:
-                scr.addnstr(height - 1, 0, keys, max(0, width - 1), curses.A_DIM)
+                scr.addnstr(height - 1, 0, clean(keys), max(0, width - 1), curses.A_DIM)
             except curses.error:
                 pass
             scr.refresh()
