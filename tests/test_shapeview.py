@@ -424,11 +424,11 @@ def test_a_registry_adds_the_attention_states_and_the_file(tmp_path):
     del doc["attention"], doc["defined_in"]
     (tmp_path / "one.json").write_text(json.dumps(doc))
     (tmp_path / "reg.json").write_text(json.dumps([{"id": "demo.sync", "path": "prog/sync.py", "attention": ["auth"],
-                                                    "about": "Copies the mail."}]))
+                                                    "about": "Copies the photos."}]))
     write_sources(tmp_path, [{"file": "one.json", "registry": "reg.json"}])
     got = load(tmp_path)[0]
     assert got["attention"] == ["auth"] and got["defined_in"] == "prog/sync.py"
-    assert got["about"] == "Copies the mail."
+    assert got["about"] == "Copies the photos."
 
 
 def test_only_a_first_word_with_a_separator_is_looked_up_in_the_project(tmp_path):
@@ -484,13 +484,13 @@ def test_two_sources_may_not_describe_the_same_program(tmp_path):
 
 def about_doc():
     doc = sync_doc()
-    doc["about"] = "Copies the mail to this computer."
+    doc["about"] = "Copies the photos to this computer."
     return doc
 
 
 def test_the_outline_opens_with_what_the_program_is():
     lines = text(sv.build(about_doc())).splitlines()
-    assert lines[1] == "Copies the mail to this computer."
+    assert lines[1] == "Copies the photos to this computer."
 
 
 # ---- long lines ----
@@ -510,7 +510,7 @@ def test_a_long_line_is_wrapped_to_the_width_without_losing_a_word():
 
 
 def test_a_sentence_from_the_margin_wraps_back_to_the_margin():
-    rows = flat(wrap([("One run of the mail mirror: checks, locks, fetches and rebuilds the index.", None)], 40))
+    rows = flat(wrap([("One run of the photo copier: checks, locks, copies and writes a log.", None)], 40))
     assert len(rows) == 2 and not rows[1].startswith(" ")
 
 
@@ -538,7 +538,7 @@ def test_it_opens_on_the_list_with_the_first_program_picked():
     for name in ("demo.sync", "b.other", "c.third"):
         assert name in body
     assert "> demo.sync" in body
-    assert "Copies the mail to this computer." in body      # what the picked program is
+    assert "Copies the photos to this computer." in body    # what the picked program is
     assert "enter" in foot and "q" in foot
 
 
@@ -631,4 +631,4 @@ def test_a_narrow_window_wraps_instead_of_cutting():
     b = sv.Browser([sv.build(about_doc())], start=0)
     body, _ = screen(b, height=200, width=30)
     assert all(len(row) <= 29 for row in body.splitlines())
-    assert "Copies the mail to this" in body
+    assert "Copies the photos to this" in body
