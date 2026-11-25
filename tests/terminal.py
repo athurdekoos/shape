@@ -48,7 +48,16 @@ class Terminal:
         return self.p.poll() is None
 
     def wait(self, timeout=5):
-        return self.p.wait(timeout=timeout)
+        """The command's exit code. What it still writes is read while waiting: on macOS a program
+        that closes a terminal waits until its last output has been read."""
+        end = time.time() + timeout
+        while self.p.poll() is None and time.time() < end:
+            if select.select([self.master], [], [], 0.1)[0]:
+                try:
+                    os.read(self.master, 65536)
+                except OSError:
+                    break
+        return self.p.wait(timeout=max(0.1, end - time.time()))
 
     def __enter__(self):
         return self
