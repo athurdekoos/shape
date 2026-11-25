@@ -238,6 +238,16 @@ def test_one_source_that_fails_does_not_hide_the_others(home):
     assert "Could not read" in r.stdout and "no-such-command-xyz" in r.stdout and "missing.json" in r.stdout
 
 
+def test_a_source_that_fails_is_named_in_a_sentence(tmp_path):
+    (tmp_path / "boom.py").write_text("import sys\nsys.exit(3)\n")
+    (tmp_path / "shape.json").write_text(json.dumps([{"file": "gone.json"}, {"command": ["no-such-command-xyz"]},
+                                                     {"command": [sys.executable, "boom.py"]}]))
+    out = run("--check", cwd=tmp_path).stdout
+    assert "could not read: gone.json: shape could not read this file (No such file or directory)." in out
+    assert "no-such-command-xyz: shape could not run this command (No such file or directory)." in out
+    assert "boom.py: it exited with 3 and wrote nothing to standard error." in out
+
+
 def test_a_program_whose_json_is_wrong_is_named_with_its_problems(home):
     broken = dict(DOOR, id="demo.broken", states={"closed": {"on": {"push": {"guard": "g"}}}})
     (home / "broken.json").write_text(json.dumps(broken))

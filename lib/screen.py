@@ -158,7 +158,7 @@ def _read_file(path: str, label: str) -> str:
     except ValueError:
         raise SourceError("%s: the path holds a NUL character, which no file name can hold" % label)
     except OSError as exc:
-        raise SourceError("%s: %s" % (label, exc.strerror or exc))
+        raise SourceError("%s: shape could not read this file (%s)." % (label, exc.strerror or exc))
 
 
 def sources(config: str) -> list:
@@ -199,10 +199,12 @@ def _run(root: str, src: dict) -> tuple:
     except subprocess.TimeoutExpired:
         raise SourceError("%s: it did not finish in 60 seconds" % label)
     except (OSError, ValueError) as exc:
-        raise SourceError("%s: %s" % (label, getattr(exc, "strerror", None) or exc))
+        raise SourceError("%s: shape could not run this command (%s)." % (label, getattr(exc, "strerror", None) or exc))
     if done.returncode != 0:
-        said = done.stderr.decode("utf-8", "replace").strip() or "(it said nothing)"
-        raise SourceError("%s: exit %d: %s" % (label, done.returncode, said))
+        said = done.stderr.decode("utf-8", "replace").strip()
+        if not said:
+            raise SourceError("%s: it exited with %d and wrote nothing to standard error." % (label, done.returncode))
+        raise SourceError("%s: it exited with %d and said: %s" % (label, done.returncode, said))
     try:
         return label, done.stdout.decode("utf-8")
     except UnicodeDecodeError:
