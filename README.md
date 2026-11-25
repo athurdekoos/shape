@@ -4,9 +4,24 @@
 through, every route from its start to an end, and every way it can go wrong. You do not
 have to read the code to follow it.
 
+The states come from a JSON description that the program prints of itself. A file you write
+by hand works too.
+
 It is for people who run programs that they did not write line by line, which now includes
-anyone whose code is written by an AI. It draws nothing, runs none of your program's work
-and changes nothing.
+anyone whose code is written by an AI.
+
+![The shape screen](docs/img/demo.gif)
+
+The recording opens the list of examples, opens `orders.fulfil` and scrolls through its outline.
+
+**What it runs.** `shape` runs the commands listed in the `shape.json` it finds in the
+current folder or a folder above it. It runs them on every run, `shape --check` included,
+to read the JSON they print. It runs them only when that `shape.json` belongs to you and
+nobody else can change it.
+
+**What it does not do.** `shape` changes no file, runs no command that `shape.json` does not
+list, and draws no diagram. To read a condition's sentence, it parses a Python file and does
+not run it.
 
 <!-- shape coffee --plain -->
 ```
@@ -57,11 +72,14 @@ Conditions (1)
 ```
 
 That is the whole of a small coffee machine, and it is the real output of
-`shape coffee --plain`. The `!` marks a state that needs a person's attention.
+`shape coffee --plain`. The `!` marks a state that needs a person's attention, and `goal`
+marks the end the program is meant to reach. The word after a dot that follows a target is
+an action: what that step does on the way, such as `restart_heater`.
 
 ## Try it in one minute
 
-You need Python 3.9 or later and nothing else.
+You need Python 3.9 or later. One of the three examples is a JavaScript program and needs
+Node.js. Without Node.js, `shape` shows the other two and says that it could not read the third.
 
 ```bash
 git clone https://github.com/athurdekoos/shape
@@ -69,16 +87,18 @@ cd shape
 bin/shape
 ```
 
-A screen opens and stays open. It lists three example programs. Move with the arrow keys,
-press Enter to open one, Esc to go back, `?` for help on reading the outline, and `q` to close.
+A screen opens and stays open, with a list of the example programs. You move with the arrow
+keys and press Enter to open one. Esc goes back, `?` explains how to read the outline, and
+`q` closes the screen.
 
 To type `shape` from any folder, run `scripts/install.sh` once. It puts one link in
-`~/.local/bin` and copies nothing.
+`~/.local/bin` and copies nothing. To remove it, delete that link with `rm ~/.local/bin/shape`.
 
 ## Show your own program
 
-`shape` reads JSON. Your program keeps its moves in one table and prints that table as JSON.
-There are three ways to get there, and each one is a step up from the one before.
+`shape` reads JSON. A move is one line of a table: in this state, on this event, go to that
+state. Your program keeps its moves in one table and prints that table as JSON. There are
+three ways to get there, and each one is a step up from the one before.
 
 | Way | What you do | What you can trust |
 |---|---|---|
@@ -99,11 +119,16 @@ Type `shape` anywhere inside that project and your programs are on the screen. T
 `shape --check` and it tells you, in sentences, what is wrong with the JSON and what you
 probably did not mean.
 
+`shape` runs the commands listed in the `shape.json` it finds in the current folder or a
+folder above it, on every run, `shape --check` included. List only commands that print the
+JSON and do nothing else. Read a `shape.json` you did not write before you type `shape` in
+its project.
+
 - [docs/PLUG-IN.md](docs/PLUG-IN.md) walks through all three ways with code.
 - [docs/FORMAT.md](docs/FORMAT.md) is the format itself, and
   [schema/shape.schema.json](schema/shape.schema.json) is the same format for a tool.
-- [examples/](examples/) has one program for each way: a JSON file written by hand, a Python
-  program and a JavaScript program.
+- [examples/](examples/) has one program for each way. There is a JSON file written by hand,
+  a Python program and a JavaScript program.
 - [python/shapetable.py](python/shapetable.py) is one file a Python program can copy. It
   holds the table, runs the program through it and prints the JSON.
 
@@ -127,9 +152,10 @@ your own from nothing, and a prompt for checking that the outline is real.
 | `shape` | Opens the screen on the list of programs. |
 | `shape orders` | Opens straight on one program. Part of its name is enough. |
 | `shape orders --plain` | Prints the same text and exits. A pipe or an AI agent gets this without asking. |
-| `shape orders --plain --all` | Prints every route, however many there are. |
+| `shape orders --plain --all` | Prints every route that was found. Counting stops at 2,000. |
 | `shape --check` | Checks the JSON of every program and says what is wrong. |
 | `shape --file one.json` | Reads one JSON file. No `shape.json` is needed. |
+| `shape --file -` | Reads the JSON from standard input, so a program's output can be piped in. |
 | `shape --config path/shape.json` | Uses that list of programs. `SHAPE_CONFIG` in the environment does the same. |
 
 | Key | What it does |
@@ -158,7 +184,7 @@ Under the states there are up to five lists.
 | Ways it goes wrong | Every move into a state that needs attention, with the event and the condition that cause it. |
 | Routes from start to an end | Every way from the start state to an end state that does not visit a state twice. |
 | Goes back | Every move that returns to an earlier state, such as a retry. |
-| Conditions | Each condition by name, with the sentence written beside it in the program. |
+| Conditions | Each condition by name, with the sentence written beside it in the program, and the file and line where it is written. |
 | Never reached | The states that nothing leads to from the start. The list appears only when there are some. |
 
 The outline also flags two mistakes in a table. A branch that can never be tried, because an
@@ -185,22 +211,28 @@ conditions ends with "otherwise no transition is declared".
 | `lib/screen.py` | The screen that stays open, and reading the sources. |
 | `python/shapetable.py` | The one file a Python program copies. `shape` itself does not use it. |
 
-It uses the Python standard library only. Run the tests with `python3 -m pytest -q`. One
-test needs the `jsonschema` package and one needs Node.js; each is skipped when its tool is missing.
+It uses the Python standard library only. Run the tests with `python3 -m pytest -q`. Some
+tests need Node.js or the `jsonschema` package, and they are skipped when it is missing.
 
-It is tested on Linux. It was written and used on macOS. It has not been tried on Windows,
-where Python does not include the `curses` module that the screen uses.
+PLATFORM-SENTENCE
+
+It has not been tried on Windows, where Python does not include the `curses` module that the
+screen uses.
 
 ## Where the idea came from
 
 The idea is ThePrimeagen's. In the video "The Joy of coding is Gone | Prime Reacts", about
-nine minutes in, he shows a screen in his editor that lists each part of his program as an
-outline of states, and says that he can trust it because it is printed from the code that
-runs. `shape` copies that idea. It uses none of his code.
+nine minutes in, he shows a screen in his editor. It lists each part of his program as an
+outline of states. `shape` copies that idea, and it uses none of his code.
 
 The JSON follows the layout that [XState](https://github.com/statelyai/xstate) uses for
 states and events. `shape` does not use XState, and it reads only a flat table, not
 everything XState can describe.
+
+## Report a problem
+
+Open an issue at [github.com/athurdekoos/shape/issues](https://github.com/athurdekoos/shape/issues).
+Say what you typed, what `shape` printed and what you expected. Attach the JSON if you can.
 
 ## Status and licence
 
