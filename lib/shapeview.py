@@ -90,6 +90,43 @@ def describe(root: str, where: str) -> str:
 
 # ---- the model ----
 
+def _components(names: list, edges: dict) -> dict:
+    """For each state, a label that two states share exactly when each can reach the other
+    (their strongly connected component, found by Tarjan's method without recursion)."""
+    index, low, label, stack, on_stack = {}, {}, {}, [], set()
+    for root in names:
+        if root in index:
+            continue
+        work = [(root, 0)]
+        while work:
+            node, i = work[-1]
+            if i == 0:
+                index[node] = low[node] = len(index)
+                stack.append(node)
+                on_stack.add(node)
+            nexts = edges.get(node, ())
+            if i < len(nexts):
+                work[-1] = (node, i + 1)
+                nxt = nexts[i]
+                if nxt not in index:
+                    work.append((nxt, 0))
+                elif nxt in on_stack:
+                    low[node] = min(low[node], index[nxt])
+                continue
+            work.pop()
+            if work:
+                parent = work[-1][0]
+                low[parent] = min(low[parent], low[node])
+            if low[node] == index[node]:
+                while True:
+                    member = stack.pop()
+                    on_stack.discard(member)
+                    label[member] = node
+                    if member == node:
+                        break
+    return label
+
+
 def build(doc: dict, root: str = "") -> dict:
     """The outline model of one machine description. Raises shapeformat.FormatError, which
     is a ValueError, when the description is wrong."""
@@ -97,13 +134,9 @@ def build(doc: dict, root: str = "") -> dict:
     initial, states_doc = doc["initial"], doc["states"]
     attention, goal = doc["attention"], doc["goal"]
 
-    names = []            # every state named anywhere, start first
-    outgoing = {}         # state -> [(event, branch), ...] in declared order
-    events_of = {}        # state -> [event, ...] in declared order
-
-    def note(name):
-        if name not in names:
-            names.append(name)
+    names = {initial: True}   # every state named anywhere, start first (a dict keeps the order)
+    outgoing = {}             # state -> [(event, branch), ...] in declared order
+    by_event = {}             # state -> {event: [branch, ...]} in declared order
 
     conditions = {}
 
@@ -118,11 +151,9 @@ def build(doc: dict, root: str = "") -> dict:
                                          "says": guard["says"] or describe(root, where)}
         return name
 
-    note(initial)
     for name, body in states_doc.items():
-        note(name)
+        names[name] = True
         for event, branches in body["on"].items():
-            events_of.setdefault(name, []).append(event)
             for raw in branches:
                 actions = raw["actions"]
                 branch = {"id": raw.get("id"), "target": raw["target"], "guard": condition(raw.get("guard")),
@@ -130,16 +161,19 @@ def build(doc: dict, root: str = "") -> dict:
                           "action": ", ".join(actions) if actions else None,
                           "attention": raw["target"] in attention, "never": False}
                 outgoing.setdefault(name, []).append((event, branch))
+                by_event.setdefault(name, {}).setdefault(event, []).append(branch)
     for moves in list(outgoing.values()):
         for _event, branch in moves:
-            note(branch["target"])
+            names[branch["target"]] = True
+    names = list(names)
 
-    order = [initial]     # the order the program reaches them, nearest first
+    order, seen = [initial], {initial}    # the order the program reaches them, nearest first
     for state in order:
         for _event, branch in outgoing.get(state, []):
-            if branch["target"] not in order:
+            if branch["target"] not in seen:
+                seen.add(branch["target"])
                 order.append(branch["target"])
-    unreachable = [n for n in names if n not in order]
+    unreachable = [n for n in names if n not in seen]
     position = {n: i for i, n in enumerate(order + unreachable)}
 
     # Shown as the flow first, then the endings: the states that lead somewhere in the
@@ -154,8 +188,7 @@ def build(doc: dict, root: str = "") -> dict:
     states = []
     for name in shown:
         events = []
-        for event in events_of.get(name, []):
-            branches = [b for e, b in outgoing[name] if e == event]
+        for event, branches in by_event.get(name, {}).items():
             decided = False
             for b in branches:
                 b["never"] = decided          # an earlier branch with no condition always wins
@@ -163,51 +196,60 @@ def build(doc: dict, root: str = "") -> dict:
             events.append({"event": event, "branches": branches, "open": not decided})
         states.append({"name": name, "start": name == initial, "end": name not in outgoing,
                        "goal": name == goal, "attention": name in attention,
-                       "reachable": name in order, "events": events})
+                       "reachable": name in seen, "events": events})
 
-    def reach(start):
-        seen, todo = set(), [start]
-        while todo:
-            for _event, branch in outgoing.get(todo.pop(), []):
-                if branch["target"] not in seen:
-                    seen.add(branch["target"])
-                    todo.append(branch["target"])
-        return seen
-
-    reachable_from = {n: reach(n) for n in names}
+    # A move goes back when it stays in its state, or when it leads to an earlier state from
+    # which this one can be reached again: the two are then in one strongly connected component.
+    component = _components(names, {n: [b["target"] for _e, b in moves] for n, moves in outgoing.items()})
     wrong, loops = [], []
     for name in shown:
         for event, b in outgoing.get(name, []):
             row = {"source": name, "event": event, "guard": b["guard"], "target": b["target"], "id": b["id"]}
             if b["attention"] and b["target"] != name:
                 wrong.append(row)
-            back = b["target"] == name or (name in reachable_from[b["target"]]
-                                           and position[b["target"]] < position[name])
-            if back:
+            if b["target"] == name or (component[b["target"]] == component[name]
+                                       and position[b["target"]] < position[name]):
                 loops.append(row)
 
     found = {}            # the states of a route -> how many ways lead along it
     count = {"ways": 0, "steps": 0, "capped": False}
 
-    def walk(state, trail):
-        if count["capped"]:
-            return
+    def arrive(trail):
+        """Count one step onto the last state of `trail`; True when the walk goes on from there."""
         count["steps"] += 1
         if count["steps"] > STEP_LIMIT:
             count["capped"] = True
-            return
-        moves = outgoing.get(state)
-        if not moves:
-            found[tuple(trail)] = found.get(tuple(trail), 0) + 1
-            count["ways"] += 1
-            if count["ways"] > PATH_LIMIT:
-                count["capped"] = True
-            return
-        for _event, branch in moves:
-            if branch["target"] not in trail:
-                walk(branch["target"], trail + [branch["target"]])
+            return False
+        if outgoing.get(trail[-1]):
+            return True
+        found[tuple(trail)] = found.get(tuple(trail), 0) + 1
+        count["ways"] += 1
+        if count["ways"] > PATH_LIMIT:
+            count["capped"] = True
+        return False
 
-    walk(initial, [initial])
+    # Every route from the start that visits no state twice, walked with a list instead of
+    # recursion so that a long chain of states cannot exhaust Python's stack.
+    trail, on_trail = [initial], {initial}
+    stack = [[initial, 0]] if arrive(trail) else []
+    while stack and not count["capped"]:
+        top = stack[-1]
+        moves = outgoing[top[0]]
+        if top[1] == len(moves):
+            stack.pop()
+            on_trail.discard(trail.pop())
+            continue
+        target = moves[top[1]][1]["target"]
+        top[1] += 1
+        if target in on_trail:
+            continue
+        trail.append(target)
+        on_trail.add(target)
+        if arrive(trail):
+            stack.append([target, 0])
+        else:
+            on_trail.discard(trail.pop())
+
     paths = [{"states": list(trail), "ways": ways, "end": trail[-1], "attention": trail[-1] in attention}
              for trail, ways in found.items()]
     paths.sort(key=lambda p: (rank[p["end"]], len(p["states"]), p["states"]))
@@ -232,13 +274,14 @@ def notes(model: dict) -> list:
     a person probably did not mean. shape --check prints them; they refuse nothing."""
     out = []
     names = [s["name"] for s in model["states"]]
+    declared, known = set(model["declared"]), set(names)
     for name in names:
-        if name not in model["declared"]:
+        if name not in declared:
             out.append('state "%s" is led to but has no entry under "states"; shape shows it as an end' % name)
     for name in model["attention_named"]:
-        if name not in names:
+        if name not in known:
             out.append('"attention" names "%s", which is not a state' % name)
-    if model["goal"] and model["goal"] not in names:
+    if model["goal"] and model["goal"] not in known:
         out.append('"goal" names "%s", which is not a state' % model["goal"])
     for name in model["unreachable"]:
         out.append('state "%s" is never reached from the start' % name)
@@ -251,10 +294,11 @@ def notes(model: dict) -> list:
                                % (where, b["target"]))
             if e["open"]:
                 out.append("%s: every branch has a condition, so nothing is declared for when none holds" % where)
-    ids = [i for i, _where in model["ids"]]
-    for tid in sorted({i for i in ids if ids.count(i) > 1}):
-        out.append('the id "%s" is given to more than one branch: %s'
-                   % (tid, " and ".join(where for i, where in model["ids"] if i == tid)))
+    places = {}
+    for tid, where in model["ids"]:
+        places.setdefault(tid, []).append(where)
+    for tid in sorted(t for t, found in places.items() if len(found) > 1):
+        out.append('the id "%s" is given to more than one branch: %s' % (tid, " and ".join(places[tid])))
     for c in model["conditions"]:
         if not c["says"]:
             out.append('the condition "%s" has no sentence: give its guard a "says", or its Python function '

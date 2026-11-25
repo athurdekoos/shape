@@ -138,6 +138,28 @@ def test_counting_stops_at_the_limit_and_says_so():
     assert "more than %d" % sv.PATH_LIMIT in text(built)
 
 
+def test_a_long_chain_of_states_is_walked_without_running_out_of_stack():
+    n = sv.shapeformat.STATE_LIMIT - 10
+    built = sv.build(machine("chain", "s0", [("t%d" % i, "s%d" % i, "go", "s%d" % (i + 1)) for i in range(n)]))
+    assert built["path_total"] == 1 and len(built["paths"][0]["states"]) == n + 1
+    assert built["unreachable"] == []
+
+
+def test_the_largest_description_allowed_is_shown_in_reasonable_time():
+    import time
+    states = sv.shapeformat.STATE_LIMIT
+    per_state = sv.shapeformat.BRANCH_LIMIT // states
+    doc = {"id": "big", "initial": "s0", "about": "A big one.", "attention": [],
+           "states": {"s%d" % i: {"on": {"e%d" % j: "s%d" % ((i * 7 + j * 13) % states) for j in range(per_state)}}
+                      for i in range(states)}}
+    started = time.time()
+    built = sv.build(doc)
+    sv.notes(built)
+    sv.render(built)
+    assert time.time() - started < 20
+    assert built["transitions"] == sv.shapeformat.BRANCH_LIMIT
+
+
 def test_a_condition_gets_its_words_from_the_function_it_names(tmp_path):
     (tmp_path / "conds.py").write_text(
         'def is_auth(ctx):\n'

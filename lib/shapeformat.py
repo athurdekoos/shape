@@ -9,6 +9,8 @@ Standard library only, Python 3.9 compatible.
 from __future__ import annotations
 
 KEYS = ("id", "initial", "states", "goal", "attention", "about", "defined_in")
+STATE_LIMIT = 2000      # the most states one description may name
+BRANCH_LIMIT = 20000    # and the most branches it may have
 STATE_KEYS = ("on",)
 BRANCH_KEYS = ("id", "target", "guard", "actions")
 GUARD_KEYS = ("name", "source", "says")
@@ -146,6 +148,12 @@ def read(doc) -> dict:
         states[state] = {"on": on}
     if initial and states and initial not in states:
         say('the start state "%s" is not one of its states' % initial)
+    branches = [b for body in states.values() for found in body["on"].values() for b in found]
+    named = len(set(states) | {b["target"] for b in branches})
+    if named > STATE_LIMIT:
+        say("it names {:,} states, and a description may name at most {:,}".format(named, STATE_LIMIT))
+    if len(branches) > BRANCH_LIMIT:
+        say("it has {:,} branches, and a description may have at most {:,}".format(len(branches), BRANCH_LIMIT))
 
     goal = doc.get("goal")
     if goal is not None and not _text(goal):

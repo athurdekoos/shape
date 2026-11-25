@@ -116,6 +116,17 @@ def test_each_wrong_part_is_named(change, word):
     assert any(word in p for p in problems(doc(**change))), problems(doc(**change))
 
 
+def test_a_description_names_at_most_2000_states_and_has_at_most_20000_branches():
+    assert sf.STATE_LIMIT == 2000 and sf.BRANCH_LIMIT == 20000
+    ends = {"s%d" % i: {} for i in range(1, sf.STATE_LIMIT)}
+    fine = {"id": "x", "initial": "s0", "states": dict(ends, s0={"on": {"go": "s1"}})}
+    sf.read(fine)
+    too_many = dict(fine, states=dict(fine["states"], s0={"on": {"go": "s1", "away": "s2000"}}))
+    assert problems(too_many) == ["it names 2,001 states, and a description may name at most 2,000"]
+    branches = {"id": "x", "initial": "a", "states": {"a": {"on": {"e%d" % i: "a" for i in range(sf.BRANCH_LIMIT + 1)}}}}
+    assert problems(branches) == ["it has 20,001 branches, and a description may have at most 20,000"]
+
+
 def test_in_a_list_of_branches_the_wrong_one_is_numbered():
     found = problems(doc(states={"closed": {"on": {"push": ["open", {"guard": "g"}]}}, "open": {}}))
     assert 'state "closed", event "push", branch 2' in found[0]
