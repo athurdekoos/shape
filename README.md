@@ -228,9 +228,10 @@ screen uses.
 
 ## Where the idea came from
 
-The idea is ThePrimeagen's. In the video "The Joy of coding is Gone | Prime Reacts", about
-nine minutes in, he shows a screen in his editor. It lists each part of his program as an
-outline of states. `shape` copies that idea, and it uses none of his code.
+The idea is ThePrimeagen's. In the video
+["The Joy of coding is Gone | Prime Reacts"](https://www.youtube.com/watch?v=z8Up6gLL3k8&t=518s),
+from 8 minutes and 38 seconds in, he shows a screen in his editor. It lists each part of his
+program as an outline of states. `shape` copies that idea, and it uses none of his code.
 
 The JSON follows the layout that [XState](https://github.com/statelyai/xstate) uses for
 states and events. `shape` does not use XState, and it reads only a flat table, not
