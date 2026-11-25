@@ -268,6 +268,55 @@ def test_no_wrong_json_ends_in_a_traceback(tmp_path, bad):
         assert r.returncode in (0, 1, 2)
 
 
+TWICE = '{"id": "x", "initial": "a", "states": {"a": {"on": {"error": "b", "go": "b", "error": "a"}}, "b": {}}}'
+
+
+@pytest.mark.parametrize("sources, words", [
+    ([{"file": "deep.json"}], "nested too deeply"),
+    ([{"command": [sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'\\xff')"]}], "its output is not UTF-8 text"),
+    ([{"file": "latin.json"}], "is not UTF-8 text"),
+    ([{"file": "a\u0000b.json"}], "NUL character"),
+    ([{"command": ["python3\u0000"]}], "NUL character"),
+    ([{"file": "door.json", "registry": "r\u0000.json"}], "NUL character"),
+    ([{"file": "door.json", "registry": 7}], '"registry"'),
+    ([{"command": [""]}], 'a "command" is a list of words'),
+    ([{"command": ["python3", 3]}], 'a "command" is a list of words'),
+    ([{"command": []}], 'a "command" is a list of words'),
+    ([{"command": "python3 orders.py"}], 'a "command" is a list of words'),
+    ([{"file": "twice.json"}], 'the key "error" is written twice in one object'),
+])
+def test_a_source_that_cannot_be_read_is_a_sentence(tmp_path, sources, words):
+    (tmp_path / "deep.json").write_text("[" * 100000 + "]" * 100000)
+    (tmp_path / "latin.json").write_bytes(b'{"id": "caf\xe9"}')
+    (tmp_path / "twice.json").write_text(TWICE)
+    (tmp_path / "door.json").write_text(json.dumps(DOOR))
+    (tmp_path / "shape.json").write_text(json.dumps(sources))
+    for args in (("--check",), ()):
+        r = run(*args, cwd=tmp_path)
+        assert "Traceback" not in r.stderr, r.stderr
+        assert words in r.stdout + r.stderr, r.stdout + r.stderr
+    assert run("--check", cwd=tmp_path).returncode == 1
+
+
+def test_a_file_or_a_shape_json_too_deep_or_with_a_key_twice_is_a_sentence(tmp_path):
+    (tmp_path / "deep.json").write_text("[" * 100000 + "]" * 100000)
+    (tmp_path / "twice.json").write_text(TWICE)
+    for name, words in (("deep.json", "nested too deeply"), ("twice.json", '"error" is written twice')):
+        r = run("--check", "--file", name, cwd=tmp_path)
+        assert r.returncode == 1 and words in r.stdout + r.stderr and "Traceback" not in r.stderr, r.stderr
+        (tmp_path / "shape.json").write_text((tmp_path / name).read_text())
+        r = run(cwd=tmp_path)
+        assert r.returncode == 1 and words in r.stderr and "Traceback" not in r.stderr, r.stderr
+    (tmp_path / "shape.json").write_text('[{"file": "a.json", "file": "b.json"}]')
+    assert '"file" is written twice' in run(cwd=tmp_path).stderr
+
+
+def test_standard_input_that_is_not_utf8_is_a_sentence(tmp_path):
+    r = subprocess.run([sys.executable, str(SHAPE), "--check", "--file", "-"], input=b'{"id": "caf\xe9"}',
+                       capture_output=True, cwd=tmp_path)
+    assert r.returncode == 1 and b"standard input" in r.stdout + r.stderr and b"Traceback" not in r.stderr
+
+
 # ---- shape --check ----
 
 def test_check_says_ok_for_each_program_that_is_fine(home):

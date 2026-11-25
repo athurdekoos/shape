@@ -127,6 +127,13 @@ def test_a_description_names_at_most_2000_states_and_has_at_most_20000_branches(
     assert problems(branches) == ["it has 20,001 branches, and a description may have at most 20,000"]
 
 
+def test_an_empty_string_is_called_an_empty_string():
+    assert sf._kind("") == "an empty string" and sf._kind("x") == "a string"
+    found = problems(doc(states={"closed": {"on": {"push": {"target": "open", "id": "", "guard": ""}}}, "open": {}}))
+    assert any('its "id" is an empty string' in p for p in found), found
+    assert any("its guard is an empty string" in p for p in found), found
+
+
 def test_in_a_list_of_branches_the_wrong_one_is_numbered():
     found = problems(doc(states={"closed": {"on": {"push": ["open", {"guard": "g"}]}}, "open": {}}))
     assert 'state "closed", event "push", branch 2' in found[0]

@@ -494,7 +494,7 @@ def find_sources(home: str, cwd: str, file=None, config=None, environ=None):
     is none, the examples in shape's own folder are shown, and the lines above say so."""
     environ = os.environ if environ is None else environ
     if file == "-":
-        return os.path.abspath(cwd), [{"stdin": True}], [], " --file -"
+        return os.path.abspath(cwd), [screen.STDIN], [], " --file -"
     if file:
         path = os.path.abspath(os.path.join(cwd, file))
         return os.path.dirname(path), [{"file": os.path.basename(path)}], [], " --file " + file
@@ -556,7 +556,10 @@ def _read(root: str, src) -> tuple:
         data = data["machines"]
     found = data if isinstance(data, list) else [data]
     extra = {}
-    if src.get("registry"):
+    if "registry" in src:
+        if not isinstance(src["registry"], str) or not src["registry"]:
+            raise SourceError('%s: "registry" should be the path of a JSON file, such as "registry.json", and it is %s'
+                              % (label, json.dumps(src["registry"])))
         _label, entries = screen.read_source(root, {"file": src["registry"]})
         extra = {e["id"]: e for e in (entries if isinstance(entries, list) else [])
                  if isinstance(e, dict) and isinstance(e.get("id"), str)}

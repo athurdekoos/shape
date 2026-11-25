@@ -27,6 +27,8 @@ class FormatError(ValueError):
 def _kind(value) -> str:
     if isinstance(value, bool):
         return "true or false"
+    if value == "":
+        return "an empty string"
     return {dict: "an object", list: "a list", str: "a string", type(None): "null"}.get(type(value), "a number")
 
 
@@ -80,7 +82,7 @@ def _branch(raw, where: str, say, extra):
         actions = []
     tid = raw.get("id")
     if tid is not None and not _text(tid):
-        say('%s: its "id" is %s, and it should be a string' % (where, _kind(tid)))
+        say('%s: its "id" is %s, and it should be a string that is not empty' % (where, _kind(tid)))
         tid = None
     extra += ['%s: the branch has a key shape does not read: "%s"' % (where, k) for k in raw if k not in BRANCH_KEYS]
     return {"id": tid, "target": raw["target"], "guard": _guard(raw.get("guard"), where, say, extra),

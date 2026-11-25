@@ -117,19 +117,60 @@ def wrap(line: list, width: int) -> list:
 
 # ---- where the JSON comes from ----
 
+class _Twice(ValueError):
+    """A key written twice in one JSON object."""
+
+    def __init__(self, key: str):
+        ValueError.__init__(self, key)
+        self.key = key
+
+
+def _once(pairs: list) -> dict:
+    """The object_pairs_hook that refuses a key written twice, which json would otherwise drop."""
+    found = {}
+    for key, value in pairs:
+        if key in found:
+            raise _Twice(key)
+        found[key] = value
+    return found
+
+
+def parse(label: str, raw: str):
+    """The JSON in `raw`, read strictly. Anything wrong raises SourceError with a sentence
+    that starts with `label`."""
+    try:
+        return json.loads(raw, object_pairs_hook=_once)
+    except _Twice as exc:
+        raise SourceError('%s: the key "%s" is written twice in one object, and JSON keeps only the last one, '
+                          'so give each key once' % (label, exc.key))
+    except RecursionError:
+        raise SourceError("%s: its JSON is nested too deeply for shape to read" % label)
+    except ValueError as exc:
+        raise SourceError("%s: it is not JSON (%s)" % (label, exc))
+
+
+def _read_file(path: str, label: str) -> str:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except UnicodeDecodeError:
+        raise SourceError("%s: it is not UTF-8 text" % label)
+    except ValueError:
+        raise SourceError("%s: the path holds a NUL character, which no file name can hold" % label)
+    except OSError as exc:
+        raise SourceError("%s: %s" % (label, exc.strerror or exc))
+
+
 def sources(config: str) -> list:
     """The list of sources in the file `config`, such as a shape.json.
     A source is {"file": PATH} or {"command": [ARGV...]}."""
-    try:
-        with open(config, encoding="utf-8") as fh:
-            found = json.load(fh)
-    except OSError as exc:
-        raise SourceError("%s: %s" % (config, exc.strerror or exc))
-    except ValueError as exc:
-        raise SourceError("%s: not JSON (%s)" % (config, exc))
+    found = parse(config, _read_file(config, config))
     if not isinstance(found, list):
         raise SourceError('%s: it should hold a list of sources, such as [{"file": "program.json"}]' % config)
     return found
+
+
+STDIN = {"file": "-"}   # the source --file - stands for; only this object reads standard input
 
 
 def command_words(root: str, command: list) -> list:
@@ -142,38 +183,51 @@ def command_words(root: str, command: list) -> list:
     return list(command)
 
 
+def _run(root: str, src: dict) -> tuple:
+    """(label, the text a command source printed)."""
+    words = src["command"]
+    if not isinstance(words, list) or not words or not all(isinstance(w, str) and w for w in words):
+        raise SourceError('a "command" is a list of words that are not empty, such as '
+                          '["python3", "orders.py", "--shape"], and this is %s' % json.dumps(words))
+    label = " ".join(words)
+    if isinstance(src, Refused):
+        raise SourceError("%s: %s" % (label, src.why))
+    if any("\0" in w for w in words):
+        raise SourceError("%s: the command holds a NUL character, which no command can hold" % label)
+    try:
+        done = subprocess.run(command_words(root, words), cwd=root, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise SourceError("%s: it did not finish in 60 seconds" % label)
+    except (OSError, ValueError) as exc:
+        raise SourceError("%s: %s" % (label, getattr(exc, "strerror", None) or exc))
+    if done.returncode != 0:
+        said = done.stderr.decode("utf-8", "replace").strip() or "(it said nothing)"
+        raise SourceError("%s: exit %d: %s" % (label, done.returncode, said))
+    try:
+        return label, done.stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        raise SourceError("%s: its output is not UTF-8 text" % label)
+
+
 def read_source(root: str, src: dict):
-    if src.get("stdin") is True:
+    """(label, the JSON) for one source: a file, a command, or standard input."""
+    if src is STDIN:
         import sys
-        label, raw = "standard input", sys.stdin.read()
+        label = "standard input"
+        try:
+            stream = getattr(sys.stdin, "buffer", None)
+            raw = stream.read().decode("utf-8") if stream is not None else sys.stdin.read()
+        except UnicodeDecodeError:
+            raise SourceError("%s: it is not UTF-8 text" % label)
     elif isinstance(src.get("file"), str):
         label = src["file"]
-        try:
-            with open(os.path.join(root, src["file"]), encoding="utf-8") as fh:
-                raw = fh.read()
-        except (OSError, UnicodeDecodeError) as exc:
-            raise SourceError("%s: %s" % (label, getattr(exc, "strerror", None) or exc))
-    elif isinstance(src.get("command"), list) and src["command"] and all(isinstance(c, str) for c in src["command"]):
-        label = " ".join(src["command"])
-        if isinstance(src, Refused):
-            raise SourceError("%s: %s" % (label, src.why))
-        command = command_words(root, src["command"])
-        try:
-            done = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=60)
-        except subprocess.TimeoutExpired:
-            raise SourceError("%s: it did not finish in 60 seconds" % label)
-        except OSError as exc:
-            raise SourceError("%s: %s" % (label, exc.strerror or exc))
-        if done.returncode != 0:
-            raise SourceError("%s: exit %d: %s" % (label, done.returncode, done.stderr.strip() or "(it said nothing)"))
-        raw = done.stdout
+        raw = _read_file(os.path.join(root, src["file"]), label)
+    elif "command" in src:
+        label, raw = _run(root, src)
     else:
         raise SourceError('a source needs "file" (a path) or "command" (a list of words), and this has neither: %s'
                           % json.dumps(src))
-    try:
-        return label, json.loads(raw)
-    except ValueError as exc:
-        raise SourceError("%s: not JSON (%s)" % (label, exc))
+    return label, parse(label, raw)
 
 
 # ---- the screen that stays open ----
