@@ -618,6 +618,16 @@ def test_question_mark_explains_how_to_read_it_and_any_key_goes_back():
     assert b.screen == "outline" and screen(b)[0].startswith("b.other")
 
 
+def test_the_help_lines_up_its_explanations_in_one_column():
+    starts = set()
+    for line in sv.HELP:
+        last = line[-1][0] if line else ""
+        if len(line) > 1 and last.startswith("   "):
+            before = sum(len(t) for t, _ in line[:-1])
+            starts.add(before + len(last) - len(last.lstrip(" ")))
+    assert len(starts) == 1, starts
+
+
 def test_q_closes_it_from_any_screen():
     for keys in ([], ["open"], ["help"]):
         b = browser()

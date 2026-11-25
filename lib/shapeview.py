@@ -720,18 +720,27 @@ def check(root: str, sources: list, wanted=None) -> tuple:
 
 # ---- the screen that stays open ----
 
+def _explained(pieces: list, words: str, column: int = 34) -> list:
+    """One line of the help: an example, then what it means, starting at `column`."""
+    width = sum(len(text) for text, _style in pieces)
+    return pieces + [(" " * max(3, column - width) + words, "dim")]
+
+
 HELP = [
     [("How to read this", "title")],
     [],
     [("A program is shown as the situations it can be in. Each one is called a state.", None)],
     [("Under a state are the things that can happen there, and where each one leads.", None)],
     [],
-    [("▶ ", "target"), ("idle", "state"), (" · start", "dim"), ("              the state the program starts in", "dim")],
-    [("      start ", None), ("→ ", "dim"), ("checking", "target"), ("        when \"start\" happens it moves to \"checking\"", "dim")],
-    [("      error", None), ("                   one thing that can happen, with several outcomes:", "dim")],
-    [("        ├ ", "dim"), ("if is_auth ", None), ("→ ", "dim"), ("auth", "bad"), (" !", "bad"), ("     the first line whose \"if\" is true wins", "dim")],
-    [("        └ ", "dim"), ("otherwise ", None), ("→ ", "dim"), ("failed", "bad"), (" !", "bad"), ("    and this one when none is", "dim")],
-    [("  ", None), ("ok", "state"), (" · end", "dim"), ("                  a state where the program stops", "dim")],
+    _explained([("▶ ", "target"), ("idle", "state"), (" · start", "dim")], "the state the program starts in"),
+    _explained([("      start ", None), ("→ ", "dim"), ("checking", "target")],
+               "when \"start\" happens it moves to \"checking\""),
+    _explained([("      error", None)], "one thing that can happen, with several outcomes:"),
+    _explained([("        ├ ", "dim"), ("if is_auth ", None), ("→ ", "dim"), ("auth", "bad"), (" !", "bad")],
+               "the first line whose \"if\" is true wins"),
+    _explained([("        └ ", "dim"), ("otherwise ", None), ("→ ", "dim"), ("failed", "bad"), (" !", "bad")],
+               "and this one when none is"),
+    _explained([("  ", None), ("ok", "state"), (" · end", "dim")], "a state where the program stops"),
     [],
     [("! and red mark a state that needs attention, usually a failure.", None)],
     [],
@@ -741,7 +750,7 @@ HELP = [
     [("  Goes back            ", "head"), ("every move that returns to an earlier state, such as a retry", None)],
     [("  Conditions           ", "head"), ("what each \"if\" means, in the words written in the program", None)],
     [],
-    [("Nothing here runs or changes a program. It only shows how each one is written.", None)],
+    [("shape changes no program. It runs only the commands in shape.json that print each table.", None)],
 ]
 
 
