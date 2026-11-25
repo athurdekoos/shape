@@ -170,6 +170,28 @@ def test_each_note(change, word):
     assert any(word in n for n in found), found
 
 
+def test_a_schema_key_is_read_without_a_note():
+    assert notes(doc(**{"$schema": "https://example.org/shape.schema.json"})) == []
+
+
+def test_the_schema_accepts_what_read_accepts_and_refuses_what_it_refuses():
+    import json
+    from pathlib import Path
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads((Path(__file__).resolve().parents[1] / "schema" / "shape.schema.json").read_text())
+    assert schema["$id"] == "https://raw.githubusercontent.com/athurdekoos/shape/main/schema/shape.schema.json"
+    assert "at least one branch" not in schema["description"]       # the schema says that itself
+    check = jsonschema.Draft202012Validator(schema)
+    nulls = doc(states={"closed": {"on": {"push": {"target": "open", "id": None,
+                                                   "guard": {"name": "g", "says": None, "source": None}},
+                                          "jam": "stuck"}}, "open": {}, "stuck": {}})
+    sf.read(nulls)
+    for good in (doc(), nulls, [doc(), doc(id="other")], {"machines": [doc()]}, doc(**{"$schema": "x"})):
+        assert list(check.iter_errors(good)) == [], good
+    for bad in ({"machines": [1]}, [doc(), 3], doc(states={"closed": {"on": {"push": {"target": "open", "id": 5}}}})):
+        assert list(check.iter_errors(bad)), bad
+
+
 def test_a_key_shape_does_not_read_is_noted_wherever_it_is():
     states = {"closed": {"On": {"push": "open"}, "on": {"push": {"target": "open", "cond": "is_light"},
                                                         "jam": {"target": "stuck", "guard": {"name": "g", "say": "It is."}}}},

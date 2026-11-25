@@ -8,7 +8,7 @@ Standard library only, Python 3.9 compatible.
 """
 from __future__ import annotations
 
-KEYS = ("id", "initial", "states", "goal", "attention", "about", "defined_in")
+KEYS = ("id", "initial", "states", "goal", "attention", "about", "defined_in", "$schema")
 STATE_LIMIT = 2000      # the most states one description may name
 BRANCH_LIMIT = 20000    # and the most branches it may have
 STATE_KEYS = ("on",)

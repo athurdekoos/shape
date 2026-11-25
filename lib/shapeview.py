@@ -31,6 +31,7 @@ from shapeformat import FormatError
 
 VERSION = "0.1.0"
 CONFIG = "shape.json"  # the list of sources, looked for in the folder shape is typed in and the folders above
+SOURCE_KEYS = ("file", "command", "registry")
 
 PATH_LIMIT = 2000      # stop counting routes past this many; the outline says so
 STEP_LIMIT = 200000    # and stop walking after this many steps, whatever was found
@@ -665,6 +666,8 @@ def check(root: str, sources: list, wanted=None) -> tuple:
         except SourceError as exc:
             unread.append(str(exc))
             continue
+        unknown = ['the source that lists it has a key shape does not read: "%s"' % k
+                   for k in src if k not in SOURCE_KEYS]
         for doc in found:
             name = doc["id"] if _named(doc) else "(an entry of %s)" % label
             if wanted and wanted.lower() not in name.lower():
@@ -672,7 +675,7 @@ def check(root: str, sources: list, wanted=None) -> tuple:
             problems, advice, size = [], [], ""
             try:
                 model = build(doc, root)
-                advice = notes(model)
+                advice = notes(model) + unknown
                 size = "%s, %s" % (plural(len(model["states"]), "state", "states"),
                                    plural(model["transitions"], "transition", "transitions"))
             except FormatError as exc:

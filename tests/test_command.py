@@ -366,6 +366,13 @@ def test_the_summary_when_nothing_could_be_read(tmp_path):
     assert r.stdout.strip().splitlines()[-1] == "No program was checked. 1 source could not be read."
 
 
+def test_check_notes_a_key_of_a_source_that_shape_does_not_read(home):
+    (home / "shape.json").write_text(json.dumps([{"file": "door.json", "regsitry": "reg.json"}]))
+    r = run("--check", cwd=home)
+    assert r.returncode == 0, r.stdout
+    assert 'note: the source that lists it has a key shape does not read: "regsitry"' in r.stdout
+
+
 def test_check_with_a_name_nothing_has_exits_2(home):
     r = run("--check", "nope", cwd=home)
     assert r.returncode == 2 and "nothing is called" in r.stderr
